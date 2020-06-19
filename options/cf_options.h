@@ -71,6 +71,9 @@ struct ImmutableCFOptions {
 
   std::vector<DbPath> db_paths;
 
+  // add by jinghuan
+  std::vector<PathMediaMap> db_path_type_list;
+
   MemTableRepFactory* memtable_factory;
 
   TableFactory* table_factory;
@@ -117,6 +120,7 @@ struct ImmutableCFOptions {
   const SliceTransform* memtable_insert_with_hint_prefix_extractor;
 
   std::vector<DbPath> cf_paths;
+  std::vector<PathMediaMap> cf_path_type_list;
 
   std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter;
 

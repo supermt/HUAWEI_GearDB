@@ -10,6 +10,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <limits>
 #include <memory>
 #include <string>
@@ -78,8 +79,16 @@ enum CompressionType : unsigned char {
   kDisableCompressionOption = 0xff,
 };
 
+enum MediaType : unsigned char {
+  kPMMedia = 0x0,
+  kNVMeSSDMedia = 0x1,
+  kSATASSDMedia = 0x2,
+  kSATAHDDMedia = 0x3,
+};
+
 struct Options;
 struct DbPath;
+struct PathMediaMap;
 
 struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // The function recovers options to a previous version. Only 4.6 or later
@@ -300,6 +309,8 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: empty
   std::vector<DbPath> cf_paths;
 
+  std::vector<PathMediaMap> cf_path_type_list;
+
   // Compaction concurrent thread limiter for the column family.
   // If non-nullptr, use given concurrent thread limiter to control
   // the max outstanding compaction tasks. Limiter can be shared with
@@ -345,6 +356,14 @@ struct DbPath {
 
   DbPath() : target_size(0) {}
   DbPath(const std::string& p, uint64_t t) : path(p), target_size(t) {}
+};
+
+struct PathMediaMap {
+  std::string table_format;
+  MediaType media;
+
+  PathMediaMap() : table_format(""), media(kSATAHDDMedia) {}
+  PathMediaMap(const std::string& f, MediaType m) : table_format(f), media(m) {}
 };
 
 struct DBOptions {
@@ -497,6 +516,7 @@ struct DBOptions {
   // opening the DB.
   // Default: empty
   std::vector<DbPath> db_paths;
+  std::vector<PathMediaMap> db_path_type_list;
 
   // This specifies the info LOG dir.
   // If it is empty, the log files will be in the same dir as data.
