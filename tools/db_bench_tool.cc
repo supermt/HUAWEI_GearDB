@@ -27,6 +27,8 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <regex>
+#include <iterator>
 
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
@@ -589,6 +591,9 @@ DEFINE_bool(show_table_properties, false,
             " stats_interval is set and stats_per_interval is on.");
 
 DEFINE_string(db, "", "Use the db with the following name.");
+
+DEFINE_string(db_path,"","db_path in complete format like "
+              "[{\"/flash_path\", 10GB}, {\"/hard_drive\", 2TB}]");
 
 // Read cache flags
 
@@ -1624,6 +1629,26 @@ class RandomGenerator {
     return Generate(len);
   }
 };
+
+static Status ParseStringToDbpath(std::string* str,
+                                  std::vector<DbPath>* db_paths){
+  Status s;
+
+  std::regex word_regex("(\\{.+?})");
+  auto words_begin =
+      std::sregex_iterator(str->begin(), str->end(), word_regex);
+  auto words_end = std::sregex_iterator();
+
+  for (std::sregex_iterator i = words_begin; i != words_end; ++i) {
+    std::smatch match = *i;
+    std::string match_str = match.str();
+    std::cout << "get the following db_path:" << '\n';
+    std::cout << "  " << match_str << '\n';
+
+  }
+
+  return s.OK();
+}
 
 static void AppendWithSpace(std::string* str, Slice msg) {
   if (msg.empty()) return;
@@ -2713,12 +2738,31 @@ class Benchmark {
     }
 
     std::vector<std::string> files;
-    FLAGS_env->GetChildren(FLAGS_db, &files);
-    for (size_t i = 0; i < files.size(); i++) {
-      if (Slice(files[i]).starts_with("heap-")) {
-        FLAGS_env->DeleteFile(FLAGS_db + "/" + files[i]);
+    // add by jinghuan, prepare the directories
+    std::vector<DbPath> db_paths;
+
+    if (!FLAGS_db_path.empty()){
+      //TODO: trans the FLAGS_DB_PATH to db_path_vector
+      ParseStringToDbpath(&FLAGS_db_path,&db_paths);
+
+      for (DbPath db_path : db_paths){
+        FLAGS_env->GetChildren(db_path.path, &files);
+        for (size_t i = 0; i < files.size(); i++) {
+          if (Slice(files[i]).starts_with("heap-")) {
+            FLAGS_env->DeleteFile(FLAGS_db + "/" + files[i]);
+          }
+        }
       }
     }
+    else{
+      FLAGS_env->GetChildren(FLAGS_db, &files);
+      for (size_t i = 0; i < files.size(); i++) {
+        if (Slice(files[i]).starts_with("heap-")) {
+          FLAGS_env->DeleteFile(FLAGS_db + "/" + files[i]);
+        }
+      }
+    }
+
     if (!FLAGS_use_existing_db) {
       Options options;
       options.env = FLAGS_env;
@@ -3740,6 +3784,7 @@ class Benchmark {
       }
 
       PlainTableOptions plain_table_options;
+      options.prefix_extractor.reset(NewFixedPrefixTransform(3));
       plain_table_options.user_key_len = FLAGS_key_size;
       plain_table_options.bloom_bits_per_key = bloom_bits_per_key;
       plain_table_options.hash_table_ratio = 0.75;
@@ -7133,8 +7178,9 @@ int db_bench_tool(int argc, char** argv) {
   FLAGS_env->SetBackgroundThreads(FLAGS_num_low_pri_threads,
                                   ROCKSDB_NAMESPACE::Env::Priority::LOW);
 
+  // changed by jinghuan, since we can provide db_path vector instead of db only
   // Choose a location for the test database if none given with --db=<path>
-  if (FLAGS_db.empty()) {
+  if (FLAGS_db.empty() && FLAGS_db_path.empty()) {
     std::string default_db_path;
     FLAGS_env->GetTestDirectory(&default_db_path);
     default_db_path += "/dbbench";
