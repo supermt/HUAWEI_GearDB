@@ -1630,6 +1630,55 @@ class RandomGenerator {
   }
 };
 
+static uint64_t ParseThePathSize(std::string path_size){
+  std::regex num_regex("\\d+(\\.\\d+)*");
+
+  double num = 0;
+  auto num_begin = std::sregex_iterator(path_size.begin(),
+                                        path_size.end(),num_regex);
+  auto num_end = std::sregex_iterator();
+  int num_length = 0;
+  for (std::sregex_iterator i = num_begin; i != num_end; ++i){
+    std::smatch path_match= *i;
+    num = stod(path_match.str());
+    num_length = path_match.str().length();
+  }
+
+  std::string unit_str = path_size.substr(num_length,
+                                          (path_size.length()-num_length));
+  if (unit_str == "TB") num*= (1024l*1024*1024*1024l);
+  if (unit_str == "GB") num*= (1024l*1024*1024);
+  if (unit_str == "MB") num*= (1024*1024);
+  if (unit_str == "KB") num*= (1024);
+
+  return static_cast<uint64_t>(num);
+}
+
+static DbPath ParseSingleDbpath(std::string* db_path){
+  DbPath path;
+  std::regex path_regex("\".*\"");
+  std::regex size_regex("\\d+(\\.\\d+)*\\w*");
+
+  auto path_begin = std::sregex_iterator(db_path->begin(),
+                                         db_path->end(), path_regex);
+  auto path_end = std::sregex_iterator();
+  // find the path
+  for (std::sregex_iterator i = path_begin; i != path_end; ++i){
+    std::smatch path_match= *i;
+    path.path = path_match.str();
+  }
+
+  auto path_size_begin = std::sregex_iterator(db_path->begin(),
+                                              db_path->end(), size_regex);
+  auto path_size_end = std::sregex_iterator();
+
+  for (std::sregex_iterator j = path_size_begin; j != path_size_end; ++j){
+    std::smatch path_size_match= *j;
+    path.target_size=ParseThePathSize(path_size_match.str());
+  }
+  return path;
+}
+
 static Status ParseStringToDbpath(std::string* str,
                                   std::vector<DbPath>* db_paths){
   Status s;
@@ -1642,9 +1691,7 @@ static Status ParseStringToDbpath(std::string* str,
   for (std::sregex_iterator i = words_begin; i != words_end; ++i) {
     std::smatch match = *i;
     std::string match_str = match.str();
-    std::cout << "get the following db_path:" << '\n';
-    std::cout << "  " << match_str << '\n';
-
+    db_paths->push_back(ParseSingleDbpath(&match_str));
   }
 
   return s.OK();
