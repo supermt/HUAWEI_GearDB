@@ -29,6 +29,7 @@
 #include <unordered_map>
 #include <regex>
 #include <iterator>
+#include <algorithm>
 
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
@@ -1656,7 +1657,7 @@ static uint64_t ParseThePathSize(std::string path_size){
 
 static DbPath ParseSingleDbpath(std::string* db_path){
   DbPath path;
-  std::regex path_regex("\".*\"");
+  std::regex path_regex("(\\.)*(\\/\\w+)+");
   std::regex size_regex("\\d+(\\.\\d+)*\\w*");
 
   auto path_begin = std::sregex_iterator(db_path->begin(),
@@ -1665,6 +1666,7 @@ static DbPath ParseSingleDbpath(std::string* db_path){
   // find the path
   for (std::sregex_iterator i = path_begin; i != path_end; ++i){
     std::smatch path_match= *i;
+    std::string path_str = path_match.str();
     path.path = path_match.str();
   }
 
@@ -4113,6 +4115,14 @@ class Benchmark {
     options.create_missing_column_families = FLAGS_num_column_families > 1;
     options.statistics = dbstats;
     options.wal_dir = FLAGS_wal_dir;
+    // add by jinghuan, add the db_path to the options
+    if (!FLAGS_db_path.empty()){
+      ParseStringToDbpath(&FLAGS_db_path,&options.db_paths);
+      // add by jinghuan, this will change the first dir as the origin db_name
+      // if the db option has been set, it will use the db as the work directory
+      if (FLAGS_db.empty()) FLAGS_db = options.db_paths[0].path;
+    }
+
     options.create_if_missing = !FLAGS_use_existing_db;
     options.dump_malloc_stats = FLAGS_dump_malloc_stats;
     options.stats_dump_period_sec =
@@ -4363,6 +4373,7 @@ class Benchmark {
       }
 #endif  // ROCKSDB_LITE
     } else {
+      std::cout << db_name << std::endl;
       s = DB::Open(options, db_name, &db->db);
     }
     if (!s.ok()) {
