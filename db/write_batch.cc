@@ -761,7 +761,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     return Status::InvalidArgument("value is too large");
   }
 
-  LocalSavePoint save(b);
+  LocalSavePoint save(b); // the commiter
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
     b->rep_.push_back(static_cast<char>(kTypeValue));

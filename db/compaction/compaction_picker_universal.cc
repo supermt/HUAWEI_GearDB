@@ -967,6 +967,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
     estimated_total_size += sorted_runs_[loop].size;
   }
   uint32_t path_id =
+
       GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
   int start_level = sorted_runs_[start_index].level;
 

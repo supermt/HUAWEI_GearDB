@@ -1123,6 +1123,7 @@ DEFINE_int64(mix_max_scan_len, 10000, "The max scan length of Iterator");
 DEFINE_int64(mix_ave_kv_size, 512,
              "The average key-value size of this workload");
 DEFINE_int64(mix_max_value_size, 1024, "The max value size of this workload");
+DEFINE_bool(print_keys,false,"If set true, the mixgraph workload will printout the keys");
 DEFINE_double(
     sine_mix_rate_noise, 0.0,
     "Add the noise ratio to the sine rate, it is between 0.0 and 1.0");
@@ -1816,6 +1817,7 @@ class ReporterAgent {
     auto s = env_->NewWritableFile(fname, &report_file_, EnvOptions());
     if (s.ok()) {
       s = report_file_->Append(Header() + "\n");
+      std::cout << "opened report file" << std::endl;
     }
     if (s.ok()) {
       s = report_file_->Flush();
@@ -1860,8 +1862,8 @@ class ReporterAgent {
       }
       auto total_ops_done_snapshot = total_ops_done_.load();
       // round the seconds elapsed
-      auto secs_elapsed =
-          (env_->NowMicros() - time_started + kMicrosInSecond / 2) /
+//      auto secs_elapsed = env_->NowMicros();
+          auto secs_elapsed = (env_->NowMicros() - time_started + kMicrosInSecond / 2) /
           kMicrosInSecond;
       std::string report = ToString(secs_elapsed) + "," +
                            ToString(total_ops_done_snapshot - last_report_) +
@@ -5427,14 +5429,17 @@ class Benchmark {
       if (rand_num < 0) {
         rand_num = rand_num * (-1);
       }
-      assert(range_ != 0);
-      int pos = static_cast<int>(rand_num % range_);
-      for (int i = 0; i < static_cast<int>(type_.size()); i++) {
-        if (pos < type_[i]) {
-          return i;
-        }
-      }
-      return 0;
+//      assert(range_ != 0);
+//      int pos = static_cast<int>(rand_num % range_);
+//      for (int i = 0; i < static_cast<int>(type_.size()); i++) {
+//        if (pos < type_[i]) {
+//          return i;
+//        }
+//      }
+//      return 0;
+//    }
+
+    return 1; // this is the put only workload
     }
   };
 
@@ -5734,8 +5739,11 @@ class Benchmark {
           val_size = val_size % value_max;
         }
         s = db_with_cfh->db->Put(
-            write_options_, key,
-            gen.Generate(static_cast<unsigned int>(val_size)));
+        write_options_, key,
+        gen.Generate(static_cast<unsigned int>(val_size)));
+        if (FLAGS_print_keys){
+          std::cout << key.ToString(true) << std::endl;
+        }
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
           exit(1);

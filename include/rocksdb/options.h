@@ -359,10 +359,12 @@ struct DbPath {
 };
 
 struct PathMediaMap {
+  int path_id;
   std::string table_format;
   MediaType media;
 
   PathMediaMap() : table_format(""), media(kSATAHDDMedia) {}
+  PathMediaMap(int id) : path_id(id), table_format(""), media(kSATAHDDMedia) {}
   PathMediaMap(const std::string& f, MediaType m) : table_format(f), media(m) {}
 };
 
