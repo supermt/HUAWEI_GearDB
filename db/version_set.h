@@ -493,6 +493,10 @@ class VersionStorageInfo {
                                      const Slice& largest_user_key,
                                      int last_level, int last_l0_idx);
 
+  SequenceNumber getOldest_snapshot_seqnum(){
+    return this->oldest_snapshot_seqnum_;
+  }
+
  private:
   const InternalKeyComparator* internal_comparator_;
   const Comparator* user_comparator_;

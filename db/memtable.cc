@@ -952,7 +952,7 @@ void MemTable::Update(SequenceNumber seq,
                       const Slice& value) {
   LookupKey lkey(key, seq);
   Slice mem_key = lkey.memtable_key();
-
+  this->update_count++;
   std::unique_ptr<MemTableRep::Iterator> iter(
       table_->GetDynamicPrefixIterator());
   iter->Seek(lkey.internal_key(), mem_key.data());

@@ -251,7 +251,7 @@ class MemTable {
   void Update(SequenceNumber seq,
               const Slice& key,
               const Slice& value);
-
+  uint64_t update_count = 0;
   // If prev_value for key exists, attempts to update it inplace.
   // else returns false
   // Pseudocode
