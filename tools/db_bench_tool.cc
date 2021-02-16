@@ -601,18 +601,29 @@ DEFINE_bool(show_table_properties, false,
             " stats_interval is set and stats_per_interval is on.");
 
 DEFINE_string(db, "", "Use the db with the following name.");
-// add by jinghuan
+// change point related options
 DEFINE_string(db_path, "",
               "db_path in complete format like "
               "[{\"/flash_path\", 10GB}, {\"/hard_drive\", 2TB}]");
 /*
- * [{"configure_name","target_value","change timing (in seconds)"},
- * {"write_buffer_size","134217728","600"}]
+ * "[{target_file_size_base,134217728,600},{write_buffer_size,134217728,600}]"
  * */
 DEFINE_string(change_points, "",
               "the configuration changing point, complete format like"
               "");
 // end
+
+// auto-tuner related options
+
+DEFINE_bool(DOTA_enabled, false, "Whether trigger the DOTA framework");
+
+DEFINE_int64(tuner_step_size, 0,
+             "time gap between two scanning process, or the time window size"
+             "of each tuning step");
+DEFINE_string(external_tuner_cmd, "",
+              "the external tuner, if the this flag is not null, activate "
+              "an external tuning advisor, which should be an executable file"
+              "in command line environment");
 
 // Read cache flags
 
@@ -1827,7 +1838,11 @@ struct DBWithColumnFamilies {
     num_created.store(new_num_created, std::memory_order_release);
   }
 };
-
+struct ChangePoint {
+  std::string opt;
+  std::string value;
+  int change_timing;
+};
 // a class that reports stats to CSV file
 class ReporterAgent {
  public:
@@ -1855,22 +1870,29 @@ class ReporterAgent {
     reporting_thread_ = port::Thread([&]() { SleepAndReport(); });
   }
 
-  ~ReporterAgent() {
-    {
-      std::unique_lock<std::mutex> lk(mutex_);
-      stop_ = true;
-      stop_cv_.notify_all();
-    }
-    reporting_thread_.join();
-  }
+  virtual ~ReporterAgent();
 
   // thread safe
   void ReportFinishedOps(int64_t num_ops) {
     total_ops_done_.fetch_add(num_ops);
   }
 
- private:
+  virtual void InsertNewTuningPoints(ChangePoint point);
+
+ protected:
   std::string Header() const { return "secs_elapsed,interval_qps"; }
+
+  virtual void DetectAndTuning(int secs_elapsed);
+  Env* env_;
+  std::unique_ptr<WritableFile> report_file_;
+  std::atomic<int64_t> total_ops_done_;
+  int64_t last_report_;
+  const uint64_t report_interval_secs_;
+  ROCKSDB_NAMESPACE::port::Thread reporting_thread_;
+  std::mutex mutex_;
+  // will notify on stop
+  std::condition_variable stop_cv_;
+  bool stop_;
   void SleepAndReport() {
     auto time_started = env_->NowMicros();
     while (true) {
@@ -1893,6 +1915,7 @@ class ReporterAgent {
       std::string report = ToString(secs_elapsed) + "," +
                            ToString(total_ops_done_snapshot - last_report_) +
                            "\n";
+      this->DetectAndTuning(secs_elapsed);
       auto s = report_file_->Append(report);
       if (s.ok()) {
         s = report_file_->Flush();
@@ -1906,17 +1929,71 @@ class ReporterAgent {
       last_report_ = total_ops_done_snapshot;
     }
   }
+};
+ReporterAgent::~ReporterAgent() {
+  {
+    std::unique_lock<std::mutex> lk(mutex_);
+    stop_ = true;
+    stop_cv_.notify_all();
+  }
+  reporting_thread_.join();
+}
+void ReporterAgent::InsertNewTuningPoints(ChangePoint point) {
+  std::cout << "can't use change point @ " << point.change_timing
+            << " Due to using default reporter" << std::endl;
+};
+void ReporterAgent::DetectAndTuning(int secs_elapsed) {
+  std::cout << "parent" << std::endl;
+  secs_elapsed++;
+}
 
-  Env* env_;
-  std::unique_ptr<WritableFile> report_file_;
-  std::atomic<int64_t> total_ops_done_;
-  int64_t last_report_;
-  const uint64_t report_interval_secs_;
-  ROCKSDB_NAMESPACE::port::Thread reporting_thread_;
-  std::mutex mutex_;
-  // will notify on stop
-  std::condition_variable stop_cv_;
-  bool stop_;
+class ReporterAgentWithTuning : public ReporterAgent {
+ private:
+  std::vector<ChangePoint> tuning_points;
+  DBWithColumnFamilies* running_db_;
+
+ public:
+  ReporterAgentWithTuning(DBWithColumnFamilies* running_db, Env* env,
+                          const std::string& fname,
+                          uint64_t report_interval_secs)
+      : ReporterAgent(env, fname, report_interval_secs) {
+    tuning_points = std::vector<ChangePoint>();
+    tuning_points.clear();
+    if (running_db == nullptr) {
+      std::cout << "Missing parameter db_ to apply changes" << std::endl;
+      abort();
+    } else {
+      running_db_ = running_db;
+    }
+  }
+  void ApplyChangePoint(ChangePoint point) {
+    //    //    db_.db->GetDBOptions();
+    //    FLAGS_env->SleepForMicroseconds(point->change_timing * 1000000l);
+    //    sleep(point->change_timing);
+    std::unordered_map<std::string, std::string> new_options = {
+        {point.opt, point.value}};
+    Status s = running_db_->db->SetOptions(new_options);
+    auto is_ok = s.ok() ? "suc" : "failed";
+    std::cout << "Set " << point.opt + "=" + point.value + " " + is_ok
+              << " after " << point.change_timing << " seconds running"
+              << std::endl;
+  }
+  void InsertNewTuningPoints(ChangePoint point) {
+    tuning_points.push_back(point);
+  }
+  void DetectAndTuning(int secs_elapsed) {
+    if (tuning_points.empty()) {
+      return;
+    }
+    for (auto it = tuning_points.begin(); it != tuning_points.end(); it++) {
+      if (it->change_timing <= secs_elapsed) {
+        if (running_db_ != nullptr) {
+          ApplyChangePoint(*it);
+        }
+        tuning_points.erase(it--);
+      }
+    }
+  }
 };
 
 enum OperationType : unsigned char {
@@ -2400,11 +2477,7 @@ class Benchmark {
   Options open_options_;  // keep options around to properly destroy db later
   // add by jinghuan
   // this option is used to make system tune itself while running.
-  struct ChangePoint {
-    std::string opt;
-    std::string value;
-    int change_timing;
-  };
+
   std::vector<ChangePoint> config_change_points;
   // end
 #ifndef ROCKSDB_LITE
@@ -3025,6 +3098,18 @@ class Benchmark {
     std::cout << config_change_points.size() << " point(s) detected"
               << std::endl;
 
+    if (FLAGS_external_tuner_cmd != "") {
+      std::cout << "search for external tuner " << FLAGS_external_tuner_cmd
+                << " " << std::endl;
+      FLAGS_DOTA_enabled = true;
+    } else if (FLAGS_DOTA_enabled) {
+      std::cout << "use internal DOTA frameworks" << std::endl;
+      // create the Tuner here.
+
+    } else {
+      std::cout << "no tuner" << std::endl;
+    }
+
     //    ParseColumnFamilyOption();
 
     std::stringstream benchmark_stream(FLAGS_benchmarks);
@@ -3484,13 +3569,8 @@ class Benchmark {
     SetPerfLevel(static_cast<PerfLevel>(shared->perf_level));
     perf_context.EnablePerLevelPerfContext();
     thread->stats.Start(thread->tid);
-    if (arg->point == nullptr) {
-      (arg->bm->*(arg->method))(thread);
-    } else {
-      std::cout << "change the option in " << arg->point->change_timing
-                << " sec" << std::endl;
-      (arg->bm->ApplyChangePoint(arg->point));
-    }
+    // detect whether change point worker
+    (arg->bm->*(arg->method))(thread);
     thread->stats.Stop();
 
     {
@@ -3502,24 +3582,10 @@ class Benchmark {
     }
   }
 
-  void ApplyChangePoint(ChangePoint* point) {
-    //    //    db_.db->GetDBOptions();
-    sleep(point->change_timing);
-    std::unordered_map<std::string, std::string> new_options = {
-        {point->opt, point->value}};
-    Status s = db_.db->SetOptions(new_options);
-    auto is_ok = s.ok() ? "suc" : "failed";
-    std::cout << "Set " << point->opt + "=" + point->value + " " + is_ok
-              << " after " << point->change_timing << " seconds running"
-              << std::endl;
-  }
-
   Stats RunBenchmark(int n, Slice name,
                      void (Benchmark::*method)(ThreadState*)) {
     SharedState shared;
-    int db_threads = n;
     int change_point_num = config_change_points.size();
-    n += config_change_points.size();
     shared.total = n;
     shared.num_initialized = 0;
     shared.num_done = 0;
@@ -3536,11 +3602,20 @@ class Benchmark {
 
     std::unique_ptr<ReporterAgent> reporter_agent;
     if (FLAGS_report_interval_seconds > 0) {
-      reporter_agent.reset(new ReporterAgent(FLAGS_env, FLAGS_report_file,
-                                             FLAGS_report_interval_seconds));
+      if (change_point_num > 0) {
+        std::cout << "using new version reporter" << std::endl;
+        // need to use another Report Agent
+        reporter_agent.reset(new ReporterAgentWithTuning(
+            &db_, FLAGS_env, FLAGS_report_file, FLAGS_report_interval_seconds));
+        for (auto point : config_change_points) {
+          reporter_agent->InsertNewTuningPoints(point);
+        }
+      } else {
+        reporter_agent.reset(new ReporterAgent(FLAGS_env, FLAGS_report_file,
+                                               FLAGS_report_interval_seconds));
+      }
     }
-
-    ThreadArg* arg = new ThreadArg[n + change_point_num];
+    ThreadArg* arg = new ThreadArg[n];
     for (int i = 0; i < n; i++) {
 #ifdef NUMA
       if (FLAGS_enable_numa) {
@@ -3565,28 +3640,9 @@ class Benchmark {
       arg[i].thread = new ThreadState(i);
       arg[i].thread->stats.SetReporterAgent(reporter_agent.get());
       arg[i].thread->shared = &shared;
-      if (i < db_threads) {
-        arg[i].point = nullptr;
-      } else {
-        arg[i].point = &config_change_points[i - db_threads];
-      }
 
       FLAGS_env->StartThread(ThreadBody, &arg[i]);
     }
-    //    std::cout << n << std::endl;
-    // start pending change points
-    //    ThreadArg* change_point_args = new ThreadArg[change_point_num];
-    //    for (int j = n; j < n + change_point_num; j++) {
-    //      arg[j].bm = this;
-    //      arg[j].shared = &shared;
-    //      arg[j].thread = new ThreadState(n + j);
-    //      arg[j].thread->stats.SetReporterAgent(reporter_agent.get());
-    //      arg[j].thread->shared = &shared;
-    //      arg[j].point = &config_change_points[j];
-    //      FLAGS_env->StartThread(ThreadBody, &arg[j]);
-    //    }
-    // create more threads to apply change points.
-    std::cout << n << std::endl;
 
     shared.mu.Lock();
     while (shared.num_initialized < n) {
