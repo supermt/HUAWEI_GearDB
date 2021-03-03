@@ -28,6 +28,7 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <regex>
 #include <thread>
 #include <unordered_map>
@@ -1913,10 +1914,11 @@ class ReporterAgent {
           (env_->NowMicros() - time_started + kMicrosInSecond / 2) /
           kMicrosInSecond;
       std::string report = ToString(secs_elapsed) + "," +
-                           ToString(total_ops_done_snapshot - last_report_) +
-                           "\n";
-      this->DetectAndTuning(secs_elapsed);
+                           ToString(total_ops_done_snapshot - last_report_);
+
       auto s = report_file_->Append(report);
+      this->DetectAndTuning(secs_elapsed);
+      s = report_file_->Append("\n");
       if (s.ok()) {
         s = report_file_->Flush();
       }
@@ -1942,10 +1944,9 @@ void ReporterAgent::InsertNewTuningPoints(ChangePoint point) {
   std::cout << "can't use change point @ " << point.change_timing
             << " Due to using default reporter" << std::endl;
 };
-void ReporterAgent::DetectAndTuning(int secs_elapsed) {
-  std::cout << "parent" << std::endl;
-  secs_elapsed++;
-}
+void ReporterAgent::DetectAndTuning(int secs_elapsed) { secs_elapsed++; }
+
+typedef std::vector<double> LSM_STATE;
 
 class ReporterAgentWithTuning : public ReporterAgent {
  private:
@@ -1981,10 +1982,105 @@ class ReporterAgentWithTuning : public ReporterAgent {
   void InsertNewTuningPoints(ChangePoint point) {
     tuning_points.push_back(point);
   }
-  void DetectAndTuning(int secs_elapsed) {
-    if (tuning_points.empty()) {
-      return;
+  const std::string memtable_size = "write_buffer_size";
+  const std::string table_size = "target_file_size_base";
+  const static unsigned long history_lsm_shape = 10;
+  std::deque<LSM_STATE> shape_list;
+  const size_t default_memtable_size = 64 << 20;
+
+  const float threashold = 0.5;
+
+  bool reach_lsm_double_line(size_t sec_elpased, Options* opt) {
+    int counter[history_lsm_shape] = {0};
+    for (LSM_STATE shape : shape_list) {
+      int max_level = 0;
+      int max_score = -1;
+      unsigned long len = shape.size();
+      for (unsigned long i = 0; i < len; i++) {
+        if (shape[i] > max_score) {
+          max_score = shape[i];
+          max_level = i;
+          if (shape[i] == 0) break;  // there is no file in this level
+        }
+      }
+      //      std::cout << "max level is " << max_level << std::endl;
+      counter[max_level]++;
     }
+    ChangePoint point;
+    for (unsigned long i = 0; i < history_lsm_shape; i++) {
+      if (counter[i] > threashold * history_lsm_shape) {
+        //        std::cout << "Apply changes due to crowded level  " << i <<
+        //        std::endl;
+        // for in each detect window, it suppose to happen a lot of single level
+        // compaction, but we need to start with level 2, since level 1 is much
+        // to common
+        if (i <= 1) {
+          if (opt->write_buffer_size > 4 * default_memtable_size) {
+            point.change_timing = sec_elpased + history_lsm_shape / 10;
+            point.opt = memtable_size;
+            point.value = ToString(default_memtable_size);
+            tuning_points.push_back(point);
+            point.opt = table_size;
+            tuning_points.push_back(point);
+            report_file_->Append("," + point.opt + "," + point.value);
+          }
+        } else if (opt->write_buffer_size <= default_memtable_size * 8) {
+          point.change_timing = sec_elpased + history_lsm_shape / 10;
+          point.opt = memtable_size;
+          point.value = ToString(opt->write_buffer_size * 2);
+          tuning_points.push_back(point);
+          point.opt = table_size;
+          tuning_points.push_back(point);
+          report_file_->Append("," + point.opt + "," + point.value);
+        }
+
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void Detect(int sec_elpased) {
+    //    auto qps = total_ops_done_.load() - last_report_;
+    //    int db_size = 64;
+    //    auto slow_down_trigger = opt.level0_slowdown_writes_trigger;
+    DBImpl* dbfull = reinterpret_cast<DBImpl*>(running_db_->db);
+    VersionSet* test = dbfull->GetVersionSet();
+
+    Options opt = running_db_->db->GetOptions();
+    auto cfd = test->GetColumnFamilySet()->GetDefault();
+    auto vstorage = cfd->current()->storage_info();
+    LSM_STATE temp;
+    for (int i = 0; i < vstorage->num_levels(); i++) {
+      double score = vstorage->CompactionScore(i);
+      temp.push_back(score);
+    }
+    if (shape_list.size() > history_lsm_shape) {
+      shape_list.pop_front();
+    }
+    shape_list.push_back(temp);
+    //    std::cout << "shape list pushed in with length " << temp.size()
+    //              << std::endl;
+    reach_lsm_double_line(sec_elpased, &opt);
+    //    LSM_STATE temp;
+    //
+    //    for (int level = 0; level < vstorage->num_levels(); ++level) {
+    //      temp.push_back(vstorage->NumLevelFiles(level));
+    //    }
+    //
+    //    if (shape_list.size() > history_lsm_shape) {
+    //      shape_list.pop_front();
+    //    }
+    //    shape_list.push_back(temp);
+    //    if (reach_lsm_double_line()) {
+    //    }
+
+    ChangePoint testpoint;
+
+    //    uint64_t size = version;
+  }
+
+  void PopChangePoints(int secs_elapsed) {
     for (auto it = tuning_points.begin(); it != tuning_points.end(); it++) {
       if (it->change_timing <= secs_elapsed) {
         if (running_db_ != nullptr) {
@@ -1993,6 +2089,14 @@ class ReporterAgentWithTuning : public ReporterAgent {
         tuning_points.erase(it--);
       }
     }
+  }
+
+  void DetectAndTuning(int secs_elapsed) {
+    Detect(secs_elapsed);
+    if (tuning_points.empty()) {
+      return;
+    }
+    PopChangePoints(secs_elapsed);
   }
 };
 
@@ -3602,7 +3706,7 @@ class Benchmark {
 
     std::unique_ptr<ReporterAgent> reporter_agent;
     if (FLAGS_report_interval_seconds > 0) {
-      if (change_point_num > 0) {
+      if (change_point_num > 0 || FLAGS_DOTA_enabled) {
         std::cout << "using new version reporter" << std::endl;
         // need to use another Report Agent
         reporter_agent.reset(new ReporterAgentWithTuning(
