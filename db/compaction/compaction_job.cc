@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db/compaction/compaction_job.h"
+
 #include <algorithm>
 #include <cinttypes>
 #include <functional>
@@ -19,7 +21,6 @@
 #include <vector>
 
 #include "db/builder.h"
-#include "db/compaction/compaction_job.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -245,9 +246,7 @@ struct CompactionJob::CompactionState {
   uint64_t num_output_records;
 
   explicit CompactionState(Compaction* c)
-      : compaction(c),
-        total_bytes(0),
-        num_output_records(0) {}
+      : compaction(c), total_bytes(0), num_output_records(0) {}
 
   size_t NumOutputFiles() {
     size_t total = 0;
@@ -529,13 +528,13 @@ void CompactionJob::GenSubcompactionBoundaries() {
   int base_level = v->storage_info()->base_level();
   uint64_t max_output_files = static_cast<uint64_t>(std::ceil(
       sum / min_file_fill_percent /
-      MaxFileSizeForLevel(*(c->mutable_cf_options()), out_lvl,
+      MaxFileSizeForLevel(
+          *(c->mutable_cf_options()), out_lvl,
           c->immutable_cf_options()->compaction_style, base_level,
           c->immutable_cf_options()->level_compaction_dynamic_level_bytes)));
-  uint64_t subcompactions =
-      std::min({static_cast<uint64_t>(ranges.size()),
-                static_cast<uint64_t>(c->max_subcompactions()),
-                max_output_files});
+  uint64_t subcompactions = std::min(
+      {static_cast<uint64_t>(ranges.size()),
+       static_cast<uint64_t>(c->max_subcompactions()), max_output_files});
 
   if (subcompactions > 1) {
     double mean = sum * 1.0 / subcompactions;
@@ -641,11 +640,12 @@ Status CompactionJob::Run() {
           break;
         }
         // Verify that the table is usable
-        // We set for_compaction to false and don't OptimizeForCompactionTableRead
-        // here because this is a special case after we finish the table building
-        // No matter whether use_direct_io_for_flush_and_compaction is true,
-        // we will regard this verification as user reads since the goal is
-        // to cache it here for further user reads
+        // We set for_compaction to false and don't
+        // OptimizeForCompactionTableRead here because this is a special case
+        // after we finish the table building No matter whether
+        // use_direct_io_for_flush_and_compaction is true, we will regard this
+        // verification as user reads since the goal is to cache it here for
+        // further user reads
         InternalIterator* iter = cfd->table_cache()->NewIterator(
             ReadOptions(), file_options_, cfd->internal_comparator(),
             *files_meta[file_idx], /*range_del_agg=*/nullptr, prefix_extractor,
@@ -662,7 +662,8 @@ Status CompactionJob::Run() {
         auto s = iter->status();
 
         if (s.ok() && paranoid_file_checks_) {
-          for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {}
+          for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+          }
           s = iter->status();
         }
 
@@ -675,8 +676,8 @@ Status CompactionJob::Run() {
       }
     };
     for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
-      thread_pool.emplace_back(verify_table,
-                               std::ref(compact_->sub_compact_states[i].status));
+      thread_pool.emplace_back(
+          verify_table, std::ref(compact_->sub_compact_states[i].status));
     }
     verify_table(compact_->sub_compact_states[0].status);
     for (auto& thread : thread_pool) {
@@ -718,6 +719,15 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   db_mutex_->AssertHeld();
   Status status = compact_->status;
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
+  // add by jinghuan
+  if (compact_->compaction->output_level() == 0) {
+    // l0 compaction, time costly, won't even clean up spaces, with lower pri
+    thread_pri_ = Env::Priority::L0;
+  } else if (compact_->compaction->output_level() == 1) {
+    thread_pri_ = Env::Priority::L1;
+  } else {
+    thread_pri_ = Env::Priority::DEEP_COMPACT;
+  }
   cfd->internal_stats()->AddCompactionStats(
       compact_->compaction->output_level(), thread_pri_, compaction_stats_);
 
@@ -773,7 +783,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
   UpdateCompactionJobStats(stats);
 
-  auto stream = event_logger_->LogToBuffer(log_buffer_,4096);
+  auto stream = event_logger_->LogToBuffer(log_buffer_, 4096);
   stream << "job" << job_id_ << "event"
          << "compaction_finished"
          << "compaction_time_micros" << stats.micros
@@ -811,39 +821,40 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
   // add by jinghuan
   // record the data with compaction ranges
-  stream << "compaction_range";
-  stream.StartObject();
-  for (size_t i = 0; i < compact_->compaction->num_input_levels(); ++i) {
-    stream << ("files_L" + ToString(compact_->compaction->level(i)));
-    stream.StartObject();
-    for (auto f : *compact_->compaction->inputs(i)) {
-      stream << std::to_string(f->fd.GetNumber());
-//      stream << f->fd.GetNumber();
-      stream.StartObject();
-      stream << "smallest_key";
-      stream << f->smallest.DebugString(true);
-      stream << "largest_key";
-      stream << f->largest.DebugString(true);
-      stream.EndObject();
-    }
-    stream.EndObject();
-  }
-  stream.EndObject();
+  //
+  //  stream << "compaction_range";
+  //  stream.StartObject();
+  //  for (size_t i = 0; i < compact_->compaction->num_input_levels(); ++i) {
+  //    stream << ("files_L" + ToString(compact_->compaction->level(i)));
+  //    stream.StartObject();
+  //    for (auto f : *compact_->compaction->inputs(i)) {
+  //      stream << std::to_string(f->fd.GetNumber());
+  ////      stream << f->fd.GetNumber();
+  //      stream.StartObject();
+  //      stream << "smallest_key";
+  //      stream << f->smallest.DebugString(true);
+  //      stream << "largest_key";
+  //      stream << f->largest.DebugString(true);
+  //      stream.EndObject();
+  //    }
+  //    stream.EndObject();
+  //  }
+  //  stream.EndObject();
 
-//  stream << "compaction_input_range";
-//  stream.StartArray();
-//
-//  for (auto compaction_file : *(compact_->compaction->inputs())){
-//    // list all the start range and end range of inputs
-//    stream.StartArray();
-//    for (FileMetaData *fd_ptr : compaction_file.files){
-//      stream << fd_ptr->smallest.DebugString(true);
-//      stream << fd_ptr->largest.DebugString(true);
-//    }
-//    stream.EndArray();
-//  }
-//
-//  stream.EndArray();
+  //  stream << "compaction_input_range";
+  //  stream.StartArray();
+  //
+  //  for (auto compaction_file : *(compact_->compaction->inputs())){
+  //    // list all the start range and end range of inputs
+  //    stream.StartArray();
+  //    for (FileMetaData *fd_ptr : compaction_file.files){
+  //      stream << fd_ptr->smallest.DebugString(true);
+  //      stream << fd_ptr->largest.DebugString(true);
+  //    }
+  //    stream.EndArray();
+  //  }
+  //
+  //  stream.EndArray();
 
   CleanupCompaction();
   return status;
@@ -1230,9 +1241,8 @@ Status CompactionJob::FinishCompactionOutputFile(
     // bound. If the end of subcompaction is null or the upper bound is null,
     // it means that this file is the last file in the compaction. So there
     // will be no overlapping between this file and others.
-    assert(sub_compact->end == nullptr ||
-           upper_bound == nullptr ||
-           ucmp->Compare(*upper_bound , *sub_compact->end) <= 0);
+    assert(sub_compact->end == nullptr || upper_bound == nullptr ||
+           ucmp->Compare(*upper_bound, *sub_compact->end) <= 0);
     auto it = range_del_agg->NewIterator(lower_bound, upper_bound,
                                          has_overlapping_endpoints);
     // Position the range tombstone output iterator. There may be tombstone

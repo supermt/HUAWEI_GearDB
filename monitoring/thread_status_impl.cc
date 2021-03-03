@@ -19,6 +19,13 @@ std::string ThreadStatus::GetThreadTypeName(
   switch (thread_type) {
     case ThreadStatus::ThreadType::HIGH_PRIORITY:
       return "High Pri";
+      // add by jinghuan
+    case L0:
+      return "L0";
+    case DEEP_COMPACT:
+      return "Deep Compaction";
+    case L1:
+      return "L1";
     case ThreadStatus::ThreadType::LOW_PRIORITY:
       return "Low Pri";
     case ThreadStatus::ThreadType::USER:

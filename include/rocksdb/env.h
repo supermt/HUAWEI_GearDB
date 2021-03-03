@@ -17,12 +17,14 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <cstdarg>
 #include <functional>
 #include <limits>
 #include <memory>
 #include <string>
 #include <vector>
+
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
 
@@ -34,7 +36,7 @@
 
 #if defined(__GNUC__) || defined(__clang__)
 #define ROCKSDB_PRINTF_FORMAT_ATTR(format_param, dots_param) \
-    __attribute__((__format__(__printf__, format_param, dots_param)))
+  __attribute__((__format__(__printf__, format_param, dots_param)))
 #else
 #define ROCKSDB_PRINTF_FORMAT_ATTR(format_param, dots_param)
 #endif
@@ -385,7 +387,7 @@ class Env {
   }
 
   // Priority for scheduling job in thread pool
-  enum Priority { BOTTOM, LOW, HIGH, USER, TOTAL };
+  enum Priority { BOTTOM, LOW, L0, DEEP_COMPACT, L1, HIGH, USER, TOTAL };
 
   static std::string PriorityToString(Priority priority);
 
