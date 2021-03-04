@@ -44,9 +44,9 @@ struct ThreadStatus {
   enum ThreadType : int {
     HIGH_PRIORITY = 0,  // RocksDB BG thread in high-pri thread pool
     // add by jinghuan
-    L0,
-    DEEP_COMPACT,
     L1,
+    DEEP_COMPACT,
+    L0,
     LOW_PRIORITY,     // RocksDB BG thread in low-pri thread pool
     USER,             // User thread (Non-RocksDB BG thread)
     BOTTOM_PRIORITY,  // RocksDB BG thread in bottom-pri thread pool
