@@ -719,15 +719,19 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   db_mutex_->AssertHeld();
   Status status = compact_->status;
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
+
   // add by jinghuan
-  if (compact_->compaction->output_level() == 0) {
-    // l0 compaction, time costly, won't even clean up spaces, with lower pri
-    thread_pri_ = Env::Priority::L0;
-  } else if (compact_->compaction->output_level() == 1) {
-    thread_pri_ = Env::Priority::L1;
-  } else {
-    thread_pri_ = Env::Priority::DEEP_COMPACT;
+  if (mutable_cf_options.mutable_compaction_thread_prior) {
+    if (compact_->compaction->output_level() == 0) {
+      // l0 compaction, time costly, won't even clean up spaces, with lower pri
+      thread_pri_ = Env::Priority::L0;
+    } else if (compact_->compaction->output_level() == 1) {
+      thread_pri_ = Env::Priority::L1;
+    } else {
+      thread_pri_ = Env::Priority::DEEP_COMPACT;
+    }
   }
+
   cfd->internal_stats()->AddCompactionStats(
       compact_->compaction->output_level(), thread_pri_, compaction_stats_);
 

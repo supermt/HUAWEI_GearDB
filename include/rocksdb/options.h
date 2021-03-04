@@ -289,6 +289,11 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool disable_auto_compactions = false;
 
+  // enable more priority levels for compaction
+
+  // Dynamically changeable through SetOptions() API
+  bool mutable_compaction_thread_prior = false;
+
   // This is a factory that provides TableFactory objects.
   // Default: a block-based table factory that provides a default
   // implementation of TableBuilder and TableReader with default

@@ -140,6 +140,8 @@ struct MutableCFOptions {
         inplace_update_num_locks(options.inplace_update_num_locks),
         prefix_extractor(options.prefix_extractor),
         disable_auto_compactions(options.disable_auto_compactions),
+        mutable_compaction_thread_prior(
+            options.mutable_compaction_thread_prior),
         soft_pending_compaction_bytes_limit(
             options.soft_pending_compaction_bytes_limit),
         hard_pending_compaction_bytes_limit(
@@ -182,6 +184,7 @@ struct MutableCFOptions {
         inplace_update_num_locks(0),
         prefix_extractor(nullptr),
         disable_auto_compactions(false),
+        mutable_compaction_thread_prior(false),
         soft_pending_compaction_bytes_limit(0),
         hard_pending_compaction_bytes_limit(0),
         level0_file_num_compaction_trigger(0),
@@ -234,6 +237,9 @@ struct MutableCFOptions {
 
   // Compaction related options
   bool disable_auto_compactions;
+  // add by jinghuan
+  bool mutable_compaction_thread_prior;
+  // end
   uint64_t soft_pending_compaction_bytes_limit;
   uint64_t hard_pending_compaction_bytes_limit;
   int level0_file_num_compaction_trigger;
@@ -269,9 +275,10 @@ struct MutableCFOptions {
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2);
 
 // Get the max file size in a given level.
-uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options,
-    int level, CompactionStyle compaction_style, int base_level = 1,
-    bool level_compaction_dynamic_level_bytes = false);
+uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options, int level,
+                             CompactionStyle compaction_style,
+                             int base_level = 1,
+                             bool level_compaction_dynamic_level_bytes = false);
 
 // Get the max size of an L0 file for which we will pin its meta-blocks when
 // `pin_l0_filter_and_index_blocks_in_cache` is set.

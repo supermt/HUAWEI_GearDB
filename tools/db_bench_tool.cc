@@ -617,6 +617,8 @@ DEFINE_string(change_points, "",
 // auto-tuner related options
 
 DEFINE_bool(DOTA_enabled, false, "Whether trigger the DOTA framework");
+DEFINE_bool(mutable_compaction_thread_prior, false,
+            "trigger multi_level compaction prior");
 
 DEFINE_int64(tuner_step_size, 0,
              "time gap between two scanning process, or the time window size"
@@ -4302,6 +4304,8 @@ class Benchmark {
     options.max_compaction_bytes = FLAGS_max_compaction_bytes;
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
     options.optimize_filters_for_hits = FLAGS_optimize_filters_for_hits;
+    options.mutable_compaction_thread_prior =
+        FLAGS_mutable_compaction_thread_prior;
 
     // fill storage options
     options.advise_random_on_open = FLAGS_advise_random_on_open;
