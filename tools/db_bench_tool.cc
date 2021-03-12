@@ -400,6 +400,10 @@ DEFINE_int32(max_background_compactions,
              "The maximum number of concurrent background compactions"
              " that can occur in parallel.");
 
+DEFINE_bool(record_level_files, false,
+            "Wether the system will "
+            "output file number according to the lsm level");
+
 DEFINE_int32(base_background_compactions, -1, "DEPRECATED");
 
 DEFINE_uint64(subcompactions, 1,
@@ -2393,6 +2397,7 @@ class Stats {
                 it->second->ToString().c_str());
       }
     }
+
     if (FLAGS_report_file_operations) {
       ReportFileOpEnv* env = static_cast<ReportFileOpEnv*>(FLAGS_env);
       ReportFileOpCounters* counters = env->counters();
@@ -3203,7 +3208,9 @@ class Benchmark {
     // print out the change point string first
     std::cout << config_change_points.size() << " point(s) detected"
               << std::endl;
-
+    if (FLAGS_mutable_compaction_thread_prior) {
+      std::cout << "turn on the complex pri system" << std::endl;
+    }
     if (FLAGS_external_tuner_cmd != "") {
       std::cout << "search for external tuner " << FLAGS_external_tuner_cmd
                 << " " << std::endl;
@@ -3769,7 +3776,26 @@ class Benchmark {
     }
 
     merge_stats.Report(name);
+    // here stops the system
 
+    if (FLAGS_record_level_files) {
+      DBImpl* dbfull = reinterpret_cast<DBImpl*>(db_.db);
+      VersionSet* test = dbfull->GetVersionSet();
+
+      auto cfd = test->GetColumnFamilySet()->GetDefault();
+      VersionStorageInfo* vstorage = cfd->current()->storage_info();
+      std::cout << "total non empty level : "
+                << vstorage->num_non_empty_levels() << std::endl;
+
+      for (int i = 0; i < vstorage->num_non_empty_levels(); i++) {
+        LevelFilesBrief lfb = vstorage->LevelFilesBrief(i);
+        std::cout << lfb.num_files << " Files in Level " << i << " ";
+        for (size_t j = 0; j < lfb.num_files; j++) {
+          std::cout << lfb.files[j].fd.GetNumber() << " ";
+        }
+        std::cout << std::endl;
+      }
+    }
     for (int i = 0; i < n; i++) {
       delete arg[i].thread;
     }
