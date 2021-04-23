@@ -724,11 +724,11 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   if (mutable_cf_options.mutable_compaction_thread_prior) {
     if (compact_->compaction->output_level() == 0) {
       // l0 compaction, time costly, won't even clean up spaces, with lower pri
-      thread_pri_ = Env::Priority::L0;
+      thread_pri_ = Env::Priority::HIGH;
     } else if (compact_->compaction->output_level() == 1) {
       thread_pri_ = Env::Priority::L1;
     } else {
-      thread_pri_ = Env::Priority::DEEP_COMPACT;
+      thread_pri_ = Env::Priority::LOW;
     }
   }
 

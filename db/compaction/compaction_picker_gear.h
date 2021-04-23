@@ -1,0 +1,8 @@
+//
+// Created by jinghuan on 4/23/21.
+//
+
+#ifndef ROCKSDB_COMPACTION_PICKER_GEAR_H
+#define ROCKSDB_COMPACTION_PICKER_GEAR_H
+
+#endif  // ROCKSDB_COMPACTION_PICKER_GEAR_H
