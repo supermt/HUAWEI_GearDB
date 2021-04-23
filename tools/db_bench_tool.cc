@@ -418,8 +418,7 @@ DEFINE_int32(max_background_flushes,
              " that can occur in parallel.");
 
 static ROCKSDB_NAMESPACE::CompactionStyle FLAGS_compaction_style_e;
-DEFINE_int32(compaction_style,
-             (int32_t)ROCKSDB_NAMESPACE::Options().compaction_style,
+DEFINE_int32(compaction_style, (int32_t)ROCKSDB_NAMESPACE::Options().compaction_style,
              "style of compaction: level-based, universal and fifo");
 
 static ROCKSDB_NAMESPACE::CompactionPri FLAGS_compaction_pri_e;
@@ -1754,7 +1753,7 @@ struct DBWithColumnFamilies {
   DB* db;
 #ifndef ROCKSDB_LITE
   OptimisticTransactionDB* opt_txn_db;
-#endif  // ROCKSDB_LITE
+#endif                              // ROCKSDB_LITE
   std::atomic<size_t> num_created;  // Need to be updated after all the
                                     // new entries in cfh are set.
   size_t num_hot;  // Number of column families to be queried at each moment.
@@ -2649,7 +2648,7 @@ class Benchmark {
     InstrumentedCondVar cv_;
     bool no_auto_recovery_;
     bool recovery_complete_;
-#else  // ROCKSDB_LITE
+#else   // ROCKSDB_LITE
     bool WaitForRecovery(uint64_t /*abs_time_us*/) { return true; }
     void EnableAutoRecovery(bool /*enable*/) {}
 #endif  // ROCKSDB_LITE
@@ -7421,6 +7420,8 @@ int db_bench_tool(int argc, char** argv) {
   ParseCommandLineFlags(&argc, &argv, true);
   FLAGS_compaction_style_e =
       (ROCKSDB_NAMESPACE::CompactionStyle)FLAGS_compaction_style;
+
+  std::cout << FLAGS_compression_type_e << std::endl;
 #ifndef ROCKSDB_LITE
   if (FLAGS_statistics && !FLAGS_statistics_string.empty()) {
     fprintf(stderr,
