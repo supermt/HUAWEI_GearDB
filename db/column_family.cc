@@ -556,7 +556,10 @@ ColumnFamilyData::ColumnFamilyData(
     } else if (ioptions_.compaction_style == kCompactionStyleFIFO) {
       compaction_picker_.reset(
           new FIFOCompactionPicker(ioptions_, &internal_comparator_));
-    } else if (ioptions_.compaction_style == kCompactionStyleNone) {
+    }
+    // add by jinghuan, here is the place to detect the compaction style.
+
+    else if (ioptions_.compaction_style == kCompactionStyleNone) {
       compaction_picker_.reset(new NullCompactionPicker(
           ioptions_, &internal_comparator_));
       ROCKS_LOG_WARN(ioptions_.info_log,
