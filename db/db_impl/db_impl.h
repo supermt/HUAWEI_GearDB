@@ -711,6 +711,10 @@ class DBImpl : public DB {
     return num_running_compactions_;
   }
 
+  std::deque<ColumnFamilyData*>* getCompactionQueue() {
+    return &compaction_queue_;
+  }
+
   const WriteController& write_controller() { return write_controller_; }
 
   InternalIterator* NewInternalIterator(

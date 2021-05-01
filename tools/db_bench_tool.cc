@@ -418,7 +418,8 @@ DEFINE_int32(max_background_flushes,
              " that can occur in parallel.");
 
 static ROCKSDB_NAMESPACE::CompactionStyle FLAGS_compaction_style_e;
-DEFINE_int32(compaction_style, (int32_t)ROCKSDB_NAMESPACE::Options().compaction_style,
+DEFINE_int32(compaction_style,
+             (int32_t)ROCKSDB_NAMESPACE::Options().compaction_style,
              "style of compaction: level-based, universal and fifo");
 
 static ROCKSDB_NAMESPACE::CompactionPri FLAGS_compaction_pri_e;
@@ -622,7 +623,10 @@ DEFINE_string(change_points, "",
 DEFINE_bool(DOTA_enabled, false, "Whether trigger the DOTA framework");
 DEFINE_bool(mutable_compaction_thread_prior, false,
             "trigger multi_level compaction prior");
+DEFINE_bool(detailed_running_stats, false,
+            "Whether record more detailed information in report agent");
 
+// end jinghuan
 DEFINE_int64(tuner_step_size, 0,
              "time gap between two scanning process, or the time window size"
              "of each tuning step");
@@ -1851,18 +1855,25 @@ struct ChangePoint {
 };
 // a class that reports stats to CSV file
 class ReporterAgent {
+ private:
+  std::string header_string_;
+
  public:
+  static std::string Header() { return "secs_elapsed,interval_qps"; }
   ReporterAgent(Env* env, const std::string& fname,
-                uint64_t report_interval_secs)
-      : env_(env),
+                uint64_t report_interval_secs,
+                std::string header_string = Header())
+      : header_string_(header_string),
+        env_(env),
         total_ops_done_(0),
         last_report_(0),
         report_interval_secs_(report_interval_secs),
         stop_(false) {
     auto s = env_->NewWritableFile(fname, &report_file_, EnvOptions());
+
     if (s.ok()) {
-      s = report_file_->Append(Header() + "\n");
-      std::cout << "opened report file" << std::endl;
+      s = report_file_->Append(header_string_ + "\n");
+      //      std::cout << "opened report file" << std::endl;
     }
     if (s.ok()) {
       s = report_file_->Flush();
@@ -1872,10 +1883,8 @@ class ReporterAgent {
               s.ToString().c_str());
       abort();
     }
-
     reporting_thread_ = port::Thread([&]() { SleepAndReport(); });
   }
-
   virtual ~ReporterAgent();
 
   // thread safe
@@ -1886,8 +1895,6 @@ class ReporterAgent {
   virtual void InsertNewTuningPoints(ChangePoint point);
 
  protected:
-  std::string Header() const { return "secs_elapsed,interval_qps"; }
-
   virtual void DetectAndTuning(int secs_elapsed);
   Env* env_;
   std::unique_ptr<WritableFile> report_file_;
@@ -1953,18 +1960,94 @@ void ReporterAgent::DetectAndTuning(int secs_elapsed) { secs_elapsed++; }
 
 typedef std::vector<double> LSM_STATE;
 
+class ReporterWithMoreDetails : public ReporterAgent {
+ private:
+  DBWithColumnFamilies* running_db_;
+  DBImpl* db_ptr;
+  std::string detailed_header() {
+    return ReporterAgent::Header() + ",num_compaction,num_flushes,lsm_shape";
+  }
+
+ public:
+  ReporterWithMoreDetails(DBWithColumnFamilies* running_db, Env* env,
+                          const std::string& fname,
+                          uint64_t report_interval_secs)
+      : ReporterAgent(env, fname, report_interval_secs, detailed_header()) {
+    if (running_db == nullptr) {
+      std::cout << "Missing parameter db_ to record more details" << std::endl;
+      abort();
+
+    } else {
+      running_db_ = running_db;
+      db_ptr = reinterpret_cast<DBImpl*>(running_db_->db);
+    }
+  }
+
+  void RecordCompactionQueue() {
+    //    auto compaction_queue_ptr = db_ptr->getCompactionQueue();
+    int num_running_compactions = db_ptr->num_running_compactions();
+    int num_running_flushes = db_ptr->num_running_flushes();
+
+    //    std::stringstream compaction_stat_list_ss;
+    //    std::string compaction_stat;
+    //    compaction_stat_list_ss << "[";
+    //    for (ColumnFamilyData* cfd : *compaction_queue_ptr) {
+    //      cfd->internal_stats();
+    //    }
+    report_file_->Append(ToString(num_running_compactions) + ",");
+    report_file_->Append(ToString(num_running_flushes) + ",");
+    //    compaction_stat_list_ss >> compaction_stat;
+    //    compaction_stat.replace(compaction_stat.end() - 1,
+    //    compaction_stat.end(),
+    //                            "]");
+    //    report_file_->Append(compaction_stat);
+  }
+  std::string GetLSMShape() {
+    auto vstorage = db_ptr->GetVersionSet()
+                        ->GetColumnFamilySet()
+                        ->GetDefault()
+                        ->current()
+                        ->storage_info();
+
+    std::stringstream shape_str_steam;
+    shape_str_steam << "[";
+    for (int i = 0; i < vstorage->num_levels(); i++) {
+      int file_count = vstorage->NumLevelFiles(i);
+      shape_str_steam << file_count << " ";
+    }
+    std::string shape_str;
+    shape_str_steam >> shape_str;
+    shape_str.replace(shape_str.end() - 1, shape_str.end(), "]");
+    return shape_str;
+  }
+
+  void DetectAndTuning(int secs_elapsed) {
+    RecordCompactionQueue();
+    std::string lsm_shape = GetLSMShape();
+    report_file_->Append(lsm_shape);
+    secs_elapsed++;
+  }
+};
+
+// ReporterWithMoreDetails::
 class ReporterAgentWithTuning : public ReporterAgent {
  private:
   std::vector<ChangePoint> tuning_points;
   DBWithColumnFamilies* running_db_;
+  std::string DOTAHeader() const {
+    return "secs_elapsed,interval_qps,batch_size";
+  }
 
+ protected:
  public:
   ReporterAgentWithTuning(DBWithColumnFamilies* running_db, Env* env,
                           const std::string& fname,
                           uint64_t report_interval_secs)
-      : ReporterAgent(env, fname, report_interval_secs) {
+      : ReporterAgent(env, fname, report_interval_secs, DOTAHeader()) {
     tuning_points = std::vector<ChangePoint>();
     tuning_points.clear();
+
+    std::cout << "using new version reporter" << std::endl;
     if (running_db == nullptr) {
       std::cout << "Missing parameter db_ to apply changes" << std::endl;
       abort();
@@ -1972,6 +2055,7 @@ class ReporterAgentWithTuning : public ReporterAgent {
       running_db_ = running_db;
     }
   }
+
   void ApplyChangePoint(ChangePoint point) {
     //    //    db_.db->GetDBOptions();
     //    FLAGS_env->SleepForMicroseconds(point->change_timing * 1000000l);
@@ -3715,13 +3799,15 @@ class Benchmark {
     std::unique_ptr<ReporterAgent> reporter_agent;
     if (FLAGS_report_interval_seconds > 0) {
       if (change_point_num > 0 || FLAGS_DOTA_enabled) {
-        std::cout << "using new version reporter" << std::endl;
         // need to use another Report Agent
         reporter_agent.reset(new ReporterAgentWithTuning(
             &db_, FLAGS_env, FLAGS_report_file, FLAGS_report_interval_seconds));
         for (auto point : config_change_points) {
           reporter_agent->InsertNewTuningPoints(point);
         }
+      } else if (FLAGS_detailed_running_stats) {
+        reporter_agent.reset(new ReporterWithMoreDetails(
+            &db_, FLAGS_env, FLAGS_report_file, FLAGS_report_interval_seconds));
       } else {
         reporter_agent.reset(new ReporterAgent(FLAGS_env, FLAGS_report_file,
                                                FLAGS_report_interval_seconds));
