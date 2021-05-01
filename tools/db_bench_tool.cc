@@ -2002,29 +2002,26 @@ class ReporterWithMoreDetails : public ReporterAgent {
     //                            "]");
     //    report_file_->Append(compaction_stat);
   }
-  std::string GetLSMShape() {
+  void RecordLSMShape() {
     auto vstorage = db_ptr->GetVersionSet()
                         ->GetColumnFamilySet()
                         ->GetDefault()
                         ->current()
                         ->storage_info();
 
-    std::stringstream shape_str_steam;
-    shape_str_steam << "[";
-    for (int i = 0; i < vstorage->num_levels(); i++) {
+    report_file_->Append("[");
+    int i = 0;
+    for (i = 0; i < vstorage->num_levels()-1; i++) {
       int file_count = vstorage->NumLevelFiles(i);
-      shape_str_steam << file_count << " ";
+      report_file_->Append(ToString(file_count)+",");
     }
-    std::string shape_str;
-    shape_str_steam >> shape_str;
-    shape_str.replace(shape_str.end() - 1, shape_str.end(), "]");
-    return shape_str;
+    report_file_->Append(ToString(vstorage->NumLevelFiles(i)) + "]");
   }
 
   void DetectAndTuning(int secs_elapsed) {
+    report_file_->Append(",");
     RecordCompactionQueue();
-    std::string lsm_shape = GetLSMShape();
-    report_file_->Append(lsm_shape);
+    RecordLSMShape();
     secs_elapsed++;
   }
 };
