@@ -31,10 +31,13 @@ enum CompactionStyle : char {
   // FIFO compaction style
   // Not supported in ROCKSDB_LITE
   kCompactionStyleFIFO = 0x2,
+  // Gear compaction style from HUAWEI
+  // Not supported in ROCKSDB_LITE
+  kCompactionStyleGear = 0x3,
   // Disable background compaction. Compaction jobs are submitted
   // via CompactFiles().
   // Not supported in ROCKSDB_LITE
-  kCompactionStyleNone = 0x3,
+  kCompactionStyleNone = 0x4,
 };
 
 // In Level-based compaction, it Determines which file from a level to be
@@ -163,10 +166,10 @@ struct CompressionOptions {
         enabled(_enabled) {}
 };
 
-enum UpdateStatus {    // Return status For inplace update callback
-  UPDATE_FAILED   = 0, // Nothing to update
-  UPDATED_INPLACE = 1, // Value updated inplace
-  UPDATED         = 2, // No inplace update. Merged value set
+enum UpdateStatus {     // Return status For inplace update callback
+  UPDATE_FAILED = 0,    // Nothing to update
+  UPDATED_INPLACE = 1,  // Value updated inplace
+  UPDATED = 2,          // No inplace update. Merged value set
 };
 
 struct AdvancedColumnFamilyOptions {
