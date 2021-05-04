@@ -420,7 +420,7 @@ DEFINE_int32(max_background_flushes,
 static ROCKSDB_NAMESPACE::CompactionStyle FLAGS_compaction_style_e;
 DEFINE_int32(compaction_style,
              (int32_t)ROCKSDB_NAMESPACE::Options().compaction_style,
-             "style of compaction: level-based, universal and fifo");
+             "style of compaction: level-based, universal, gear and fifo");
 
 static ROCKSDB_NAMESPACE::CompactionPri FLAGS_compaction_pri_e;
 DEFINE_int32(compaction_pri,
@@ -2011,9 +2011,9 @@ class ReporterWithMoreDetails : public ReporterAgent {
 
     report_file_->Append("[");
     int i = 0;
-    for (i = 0; i < vstorage->num_levels()-1; i++) {
+    for (i = 0; i < vstorage->num_levels() - 1; i++) {
       int file_count = vstorage->NumLevelFiles(i);
-      report_file_->Append(ToString(file_count)+",");
+      report_file_->Append(ToString(file_count) + ",");
     }
     report_file_->Append(ToString(vstorage->NumLevelFiles(i)) + "]");
   }
@@ -7501,10 +7501,17 @@ int db_bench_tool(int argc, char** argv) {
     initialized = true;
   }
   ParseCommandLineFlags(&argc, &argv, true);
-  FLAGS_compaction_style_e =
-      (ROCKSDB_NAMESPACE::CompactionStyle)FLAGS_compaction_style;
+  {
+    FLAGS_compaction_style_e =
+        (ROCKSDB_NAMESPACE::CompactionStyle)FLAGS_compaction_style;
+    if (FLAGS_compaction_style_e == ROCKSDB_NAMESPACE::kCompactionStyleGear) {
+      FLAGS_num_levels = 3;  // add by jinghuan
+      // TODO: remove this part, since we suppose to support more levels in the
+      // future.
+      std::cout << "Warning! You are using a personal feature" << std::endl;
+    }
+  }
 
-  std::cout << FLAGS_compression_type_e << std::endl;
 #ifndef ROCKSDB_LITE
   if (FLAGS_statistics && !FLAGS_statistics_string.empty()) {
     fprintf(stderr,
