@@ -1699,6 +1699,7 @@ VersionStorageInfo::VersionStorageInfo(
       next_file_to_compact_by_size_(num_levels_),
       compaction_score_(num_levels_),
       compaction_level_(num_levels_),
+      biggest_tree(0),
       l0_delay_trigger_count_(0),
       accumulated_file_size_(0),
       accumulated_raw_key_size_(0),
@@ -2268,6 +2269,8 @@ void VersionStorageInfo::ComputeCompensatedSizes() {
 int VersionStorageInfo::MaxInputLevel() const {
   if (compaction_style_ == kCompactionStyleLevel) {
     return num_levels() - 2;
+  } else if (compaction_style_ == kCompactionStyleGear) {
+    return num_levels() - 2;  // num_levels = 3, input level = {0,1}
   }
   return 0;
 }

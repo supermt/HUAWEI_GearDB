@@ -16,16 +16,29 @@ namespace ROCKSDB_NAMESPACE {
 class GearCompactionPicker : public CompactionPicker {
  public:
   GearCompactionPicker(const ImmutableCFOptions& ioptions,
-                            const InternalKeyComparator* icmp)
+                       const InternalKeyComparator* icmp)
       : CompactionPicker(ioptions, icmp) {}
   virtual Compaction* PickCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       VersionStorageInfo* vstorage, LogBuffer* log_buffer,
       SequenceNumber earliest_memtable_seqno = kMaxSequenceNumber) override;
-  virtual int MaxOutputLevel() const override { return NumberLevels() - 1; }
+
+  virtual int MaxOutputLevel() const override {
+    return NumberLevels() - 1;  // suppose to be 2 for now
+  }                             // 3-1 = 2
 
   virtual bool NeedsCompaction(
       const VersionStorageInfo* vstorage) const override;
-};
+
+  int l1_file_compaction_trigger = 10;
+  double first_l2_size_ratio =
+      0.03;  // Size ratio of L2-1 file, when the size of this file exceed this
+             // ratio, trigger a large merge
+  double upper_level_size_ratio =
+      0.04;  // Size ratio of L2-1 file, when the size of this file exceed this
+  // ratio, trigger a large merge
+
+};  // end class compaction gear picker
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

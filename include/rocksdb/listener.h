@@ -11,6 +11,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
 #include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
@@ -93,6 +94,10 @@ enum class CompactionReason : int {
   kExternalSstIngestion,
   // Compaction due to SST file being too old
   kPeriodicCompaction,
+  // The size of L0&L1 exceed the 3% boundary
+//  kGearUpperLevelCompaction,
+  // The size of first l2 file exceed the 4% boundary
+  kGearCompactionAllInOne,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };

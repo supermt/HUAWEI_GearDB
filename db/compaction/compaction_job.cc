@@ -720,7 +720,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   Status status = compact_->status;
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
 
-  // add by jinghuan
+  // add by jinghuan, mutable compaction thread priority
   if (mutable_cf_options.mutable_compaction_thread_prior) {
     if (compact_->compaction->output_level() == 0) {
       // l0 compaction, time costly, won't even clean up spaces, with lower pri
@@ -742,15 +742,29 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   if (!versions_->io_status().ok()) {
     io_status_ = versions_->io_status();
   }
-  VersionStorageInfo::LevelSummaryStorage tmp;
+
   auto vstorage = cfd->current()->storage_info();
+  VersionStorageInfo::LevelSummaryStorage tmp;
   const auto& stats = compaction_stats_;
 
   double read_write_amp = 0.0;
   double write_amp = 0.0;
   double bytes_read_per_sec = 0;
   double bytes_written_per_sec = 0;
-
+  // add by jinghuan, all files produced by AllInOneCompaction should be added
+  // as the biggest tree. Install this list of file biggest tree.
+  if (compact_->compaction->compaction_reason() ==
+      CompactionReason::kGearCompactionAllInOne) {
+    autovector<FileMetaData> output_file_list;
+    for (uint64_t i = 0; i < compact_->sub_compact_states.size(); i++) {
+      // somehow it can't use the for each loop for SubCompactionState
+      // so we use the for iterator loop
+      for (SubcompactionState::Output output_structure :
+           compact_->sub_compact_states[i].outputs) {
+        output_file_list.emplace_back(output_structure.meta);
+      }
+    }
+  }
   if (stats.bytes_read_non_output_levels > 0) {
     read_write_amp = (stats.bytes_written + stats.bytes_read_output_level +
                       stats.bytes_read_non_output_levels) /
@@ -799,6 +813,13 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
          << compact_->num_output_records << "num_subcompactions"
          << compact_->sub_compact_states.size() << "output_compression"
          << CompressionTypeToString(compact_->compaction->output_compression());
+
+  if (compact_->compaction->immutable_cf_options()->compaction_style ==
+      kCompactionStyleGear) {
+    // while using the gear compaction style, record the size of biggest tree.
+    stream << "estimate_size_of_big_tree" << vstorage->ComputeBiggestTreeSize()
+           << "num_files_in_big_tree" << vstorage->GetBigTreeLength();
+  }
 
   if (compaction_job_stats_ != nullptr) {
     stream << "num_single_delete_mismatches"
