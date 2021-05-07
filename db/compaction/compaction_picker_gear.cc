@@ -11,6 +11,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <cinttypes>
+#include <iostream>
 #include <limits>
 #include <queue>
 #include <string>

@@ -2686,7 +2686,8 @@ void VersionStorageInfo::AddBlobFile(
 void VersionStorageInfo::SetFinalized() {
   finalized_ = true;
 #ifndef NDEBUG
-  if (compaction_style_ != kCompactionStyleLevel) {
+  if (compaction_style_ != kCompactionStyleLevel ||
+      compaction_style_ != kCompactionStyleGear) {
     // Not level based compaction.
     return;
   }
@@ -3265,7 +3266,10 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
 
   level_max_bytes_.resize(ioptions.num_levels);
   if (!ioptions.level_compaction_dynamic_level_bytes) {
-    base_level_ = (ioptions.compaction_style == kCompactionStyleLevel) ? 1 : -1;
+    base_level_ = (ioptions.compaction_style == kCompactionStyleLevel ||
+                   ioptions.compaction_style == kCompactionStyleGear)
+                      ? 1
+                      : -1;
 
     // Calculate for static bytes base case
     for (int i = 0; i < ioptions.num_levels; ++i) {

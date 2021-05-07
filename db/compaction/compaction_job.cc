@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cinttypes>
 #include <functional>
+#include <iostream>
 #include <list>
 #include <memory>
 #include <random>
@@ -753,6 +754,8 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   double bytes_written_per_sec = 0;
   // add by jinghuan, all files produced by AllInOneCompaction should be added
   // as the biggest tree. Install this list of file biggest tree.
+
+  std::cout << "tes modifying point" << std::endl;
   if (compact_->compaction->compaction_reason() ==
       CompactionReason::kGearCompactionAllInOne) {
     autovector<FileMetaData> output_file_list;
