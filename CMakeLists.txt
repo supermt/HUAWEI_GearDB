@@ -107,6 +107,24 @@ else()
     endif()
   endif()
 
+#  if(WITH_GFLAGS)
+#    # Config with namespace available since gflags 2.2.2
+#    option(GFLAGS_USE_TARGET_NAMESPACE "Use gflags import target with namespace." ON)
+#    find_package(gflags CONFIG)
+#    if(gflags_FOUND)
+#      if(TARGET ${GFLAGS_TARGET})
+#        # Config with GFLAGS_TARGET available since gflags 2.2.0
+#        list(APPEND THIRDPARTY_LIBS ${GFLAGS_TARGET})
+#      else()
+#        # Config with GFLAGS_LIBRARIES available since gflags 2.1.0
+#        list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIBRARIES})
+#      endif()
+#    else()
+#      find_package(gflags REQUIRED)
+#      list(APPEND THIRDPARTY_LIBS gflags::gflags)
+#    endif()
+#    add_definitions(-DGFLAGS=1)
+#  endif()
   if(WITH_GFLAGS)
     # Config with namespace available since gflags 2.2.2
     option(GFLAGS_USE_TARGET_NAMESPACE "Use gflags import target with namespace." ON)
@@ -114,15 +132,17 @@ else()
     if(gflags_FOUND)
       if(TARGET ${GFLAGS_TARGET})
         # Config with GFLAGS_TARGET available since gflags 2.2.0
-        list(APPEND THIRDPARTY_LIBS ${GFLAGS_TARGET})
+        set(GFLAGS_LIB ${GFLAGS_TARGET})
       else()
         # Config with GFLAGS_LIBRARIES available since gflags 2.1.0
-        list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIBRARIES})
+        set(GFLAGS_LIB ${GFLAGS_LIBRARIES})
       endif()
     else()
       find_package(gflags REQUIRED)
-      list(APPEND THIRDPARTY_LIBS gflags::gflags)
+      set(GFLAGS_LIB gflags::gflags)
     endif()
+    include_directories(${GFLAGS_INCLUDE_DIR})
+    list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIB})
     add_definitions(-DGFLAGS=1)
   endif()
 
@@ -199,6 +219,10 @@ configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
 add_library(build_version OBJECT ${BUILD_VERSION_CC})
 target_include_directories(build_version PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/util)
+
+# add by jinghuan for cmake toolchain
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_INIT} -std=c++11 -pthread")
+
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W4 /wd4127 /wd4800 /wd4996 /wd4351 /wd4100 /wd4204 /wd4324")
