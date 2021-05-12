@@ -2191,7 +2191,7 @@ TEST_F(DBTestUniversalCompaction2, PeriodicCompaction) {
   int start_level = -1;
   int output_level = -1;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "UniversalCompactionPicker::PickPeriodicCompaction:Return",
+      "UniversalCompactionPicker::PickCompactionLastLevel:Return",
       [&](void* arg) {
         Compaction* compaction = reinterpret_cast<Compaction*>(arg);
         ASSERT_TRUE(arg != nullptr);

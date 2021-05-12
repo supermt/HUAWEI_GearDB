@@ -1089,7 +1089,7 @@ Compaction* UniversalCompactionBuilder::PickPeriodicCompaction() {
                                          CompactionReason::kPeriodicCompaction);
 
   TEST_SYNC_POINT_CALLBACK(
-      "UniversalCompactionPicker::PickPeriodicCompaction:Return", c);
+      "UniversalCompactionPicker::PickCompactionLastLevel:Return", c);
 
   return c;
 }

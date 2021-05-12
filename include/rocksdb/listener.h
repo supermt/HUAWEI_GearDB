@@ -95,7 +95,7 @@ enum class CompactionReason : int {
   // Compaction due to SST file being too old
   kPeriodicCompaction,
   // The size of L0&L1 exceed the 3% boundary
-//  kGearUpperLevelCompaction,
+  kGearCollectTiered,
   // The size of first l2 file exceed the 4% boundary
   kGearCompactionAllInOne,
   // total number of compaction reasons, new reasons must be added above this.

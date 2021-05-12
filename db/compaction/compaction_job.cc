@@ -755,32 +755,22 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   // add by jinghuan, all files produced by AllInOneCompaction should be added
   // as the biggest tree. Install this list of file biggest tree.
 
-  std::cout << "tes modifying point" << std::endl;
-  if (compact_->compaction->compaction_reason() ==
-      CompactionReason::kGearCompactionAllInOne) {
-    autovector<FileMetaData> output_file_list;
-    for (uint64_t i = 0; i < compact_->sub_compact_states.size(); i++) {
-      // somehow it can't use the for each loop for SubCompactionState
-      // so we use the for iterator loop
-      for (SubcompactionState::Output output_structure :
-           compact_->sub_compact_states[i].outputs) {
-        output_file_list.emplace_back(output_structure.meta);
-      }
-    }
-  }
+
   if (stats.bytes_read_non_output_levels > 0) {
-    read_write_amp = (stats.bytes_written + stats.bytes_read_output_level +
-                      stats.bytes_read_non_output_levels) /
+    read_write_amp = static_cast<double>(stats.bytes_written +
+                                         stats.bytes_read_output_level +
+                                         stats.bytes_read_non_output_levels) /
                      static_cast<double>(stats.bytes_read_non_output_levels);
     write_amp = stats.bytes_written /
                 static_cast<double>(stats.bytes_read_non_output_levels);
   }
   if (stats.micros > 0) {
     bytes_read_per_sec =
-        (stats.bytes_read_non_output_levels + stats.bytes_read_output_level) /
+        static_cast<double>(stats.bytes_read_non_output_levels +
+                            stats.bytes_read_output_level) /
         static_cast<double>(stats.micros);
-    bytes_written_per_sec =
-        stats.bytes_written / static_cast<double>(stats.micros);
+    bytes_written_per_sec = static_cast<double>(stats.bytes_written) /
+                            static_cast<double>(stats.micros);
   }
 
   ROCKS_LOG_BUFFER(
@@ -816,13 +806,6 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
          << compact_->num_output_records << "num_subcompactions"
          << compact_->sub_compact_states.size() << "output_compression"
          << CompressionTypeToString(compact_->compaction->output_compression());
-
-  if (compact_->compaction->immutable_cf_options()->compaction_style ==
-      kCompactionStyleGear) {
-    // while using the gear compaction style, record the size of biggest tree.
-    stream << "estimate_size_of_big_tree" << vstorage->ComputeBiggestTreeSize()
-           << "num_files_in_big_tree" << vstorage->GetBigTreeLength();
-  }
 
   if (compaction_job_stats_ != nullptr) {
     stream << "num_single_delete_mismatches"
@@ -1520,6 +1503,8 @@ Status CompactionJob::InstallCompactionResults(
       compaction->edit()->AddFile(compaction->output_level(), out.meta);
     }
   }
+  // add by jinghuan, install the LSM shape into the versions_
+
   return versions_->LogAndApply(compaction->column_family_data(),
                                 mutable_cf_options, compaction->edit(),
                                 db_mutex_, db_directory_);

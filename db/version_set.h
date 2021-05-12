@@ -176,21 +176,12 @@ class VersionStorageInfo {
   void operator=(const VersionStorageInfo&) = delete;
   ~VersionStorageInfo();
 
-  // add by jinghuan
-  int GetBigTreeLength() { return biggest_tree.size(); }
-
   void Reserve(int level, size_t size) { files_[level].reserve(size); }
 
   void AddFile(int level, FileMetaData* f, Logger* info_log = nullptr);
 
   void AddBlobFile(std::shared_ptr<BlobFileMetaData> blob_file_meta);
-  uint64_t ComputeBiggestTreeSize() const {
-    uint64_t result = 0;
-    for (auto meta : biggest_tree) {
-      result += meta.compensated_file_size;
-    }
-    return result;
-  }
+
   void SetFinalized();
 
   // Update num_non_empty_levels_.
@@ -563,18 +554,19 @@ class VersionStorageInfo {
     return this->oldest_snapshot_seqnum_;
   }
 
-  void FillTheBiggestTree(const autovector<FileMetaData>& compaction_output) {
-    assert(compaction_output.size() >= 1);
-    // remove all files in old Tree
-    biggest_tree.clear();
-    for (auto f : compaction_output) {
-      biggest_tree.emplace_back(f);
-    }
-  }
   //  std::vector<std::pair<int, std::vector<IndexTree>>> CalculateSortedRuns();
+  std::vector<IndexTree> getAllIndexTrees();
+  std::vector<std::pair<int, std::vector<IndexTree>>>& getTreeLevelMap() {
+    return tree_level_map;
+  }
+  bool L2SmallTreeIsFilled() {
+    assert((int)tree_level_map.size() == num_levels_);
+    return tree_level_map[num_levels_ - 1].second.size() >=
+           pow(l0_compaction_trigger_num_, num_levels_ - 1);
+  }
 
  private:
-    void CalculateSortedRuns();
+  void CalculateSortedRuns();
 
  private:
   const InternalKeyComparator* internal_comparator_;
@@ -675,9 +667,6 @@ class VersionStorageInfo {
   std::vector<std::pair<int, std::vector<IndexTree>>> tree_level_map;
   int l0_compaction_trigger_num_;
   // [ 0:[F1,F2], 1:[F3,F4], 2:[F5,F6]]
-  std::vector<FileMetaData>
-      biggest_tree;  // the biggest tree, it won't be created at first, the data
-                     // structure FileMetaData is not that big.
   int l0_delay_trigger_count_ = 0;  // Count used to trigger slow down and stop
                                     // for number of L0 files.
 
@@ -707,9 +696,13 @@ class VersionStorageInfo {
   // If set to true, we will run consistency checks even if RocksDB
   // is compiled in release mode
   bool force_consistency_checks_;
-
   friend class Version;
   friend class VersionSet;
+  // macro area
+ public:
+  const static int l2_small_tree_index = 0;
+  const static int l2_large_tree_index = 1;
+  const static int l2_invalid_tree_index = -1;
 };
 
 using MultiGetRange = MultiGetContext::Range;

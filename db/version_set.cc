@@ -1680,11 +1680,11 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
 }
 
 void VersionStorageInfo::CalculateSortedRuns() {
-  if (!tree_level_map.empty()) {
-    // this is only used to migrate the sorted runs from a version storage info
-    // with files in it.
-    return;
-  }
+  // Think this, in previous implementation, all index tree are calculated at
+  // the beginning of PickCompaction. So, this index tree structure should not
+  // be stored
+  tree_level_map.clear();
+
   std::vector<IndexTree> temp;
   for (auto f : this->LevelFiles(0)) {
     temp.emplace_back(0, f, f->fd.GetFileSize(), f->compensated_file_size,
@@ -1693,15 +1693,6 @@ void VersionStorageInfo::CalculateSortedRuns() {
   tree_level_map.emplace_back(0, temp);
   for (int level = 1; level < this->num_levels_ - 1; level++) {
     int file_num_limit = pow(l0_compaction_trigger_num_, level);
-    // A certain Index in level n should contain at most level0_trigger^(n+1)
-    // SST e.g. Level 0 triggers compaction when reaches 10, then the Level 1
-    // should trigger a compaction when there is 100 SST. So, the size of a
-    // IndexTree in level n should has at most 10^n SST.
-    int level_files_index = 0;
-    auto level_files = LevelFiles(level);
-    int num_level_files = level_files.size();
-    int count = 0;
-
     temp.clear();
 
     uint64_t total_compensated_size = 0U;
@@ -1710,9 +1701,11 @@ void VersionStorageInfo::CalculateSortedRuns() {
     IndexTree current_node(level, nullptr, 0, 0, false);
     for (FileMetaData* f : LevelFiles(level)) {
       if (current_node.AddFileToFdList(f, file_num_limit)) {
-        current_node.being_compacted = f->being_compacted;
         current_node.size += f->fd.GetFileSize();
         current_node.compensated_file_size += f->compensated_file_size;
+        if (f->being_compacted) {
+          current_node.being_compacted = f->being_compacted;
+        }
       } else {
         // the index tree is fulfilled.
         temp.emplace_back(level, nullptr, current_node.size,
@@ -1726,11 +1719,24 @@ void VersionStorageInfo::CalculateSortedRuns() {
     }
     tree_level_map.emplace_back(level, temp);
   }
-
-  // the last level consists of only two Index tree, since this function will
-  // only be called by the constructor. We set all files in the last level as
-  // the largest file.
-
+  // Now we record all data inside the last level;
+  int last_level = num_levels_ - 1;
+  temp.clear();
+  // l2_position = 0, the small tree
+  temp.emplace_back(last_level, nullptr, 0, 0, false);
+  // l2_position = 1, the large tree
+  temp.emplace_back(last_level, nullptr, 0, 0, false);
+  // if l2_position = -1, abort, and -1 can't be used in array index, so ,there
+  // is no need for assertion
+  for (auto f : this->LevelFiles(last_level)) {
+    temp[f->l2_position].fd_list.emplace_back(f);
+    temp[f->l2_position].size += f->fd.GetFileSize();
+    temp[f->l2_position].compensated_file_size += f->compensated_file_size;
+    if (f->being_compacted) {
+      temp[f->l2_position].being_compacted = f->being_compacted;
+    }
+  }
+  tree_level_map.emplace_back(last_level, temp);
   return;
 }
 
@@ -1756,7 +1762,6 @@ VersionStorageInfo::VersionStorageInfo(
       compaction_level_(num_levels_),
       tree_level_map(0),
       l0_compaction_trigger_num_(l0_compaction_trigger_num),
-      biggest_tree(0),
       l0_delay_trigger_count_(0),
       accumulated_file_size_(0),
       accumulated_raw_key_size_(0),
@@ -1781,9 +1786,9 @@ VersionStorageInfo::VersionStorageInfo(
     current_num_samples_ = ref_vstorage->current_num_samples_;
     oldest_snapshot_seqnum_ = ref_vstorage->oldest_snapshot_seqnum_;
   }
-  if (compaction_style == kCompactionStyleGear) {
-    CalculateSortedRuns();
-  }
+  //  if (compaction_style == kCompactionStyleGear) {
+  //    CalculateSortedRuns();
+  //  }
 }
 
 Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
@@ -3522,6 +3527,17 @@ bool VersionStorageInfo::RangeMightExistAfterSortedRun(
     }
   }
   return false;
+}
+std::vector<VersionStorageInfo::IndexTree>
+VersionStorageInfo::getAllIndexTrees() {
+  CalculateSortedRuns();
+  std::vector<IndexTree> results;
+  for (auto level_files : tree_level_map) {
+    for (auto tree : level_files.second) {
+      results.emplace_back(tree);
+    }
+  }
+  return results;
 }
 
 void Version::AddLiveFiles(std::vector<uint64_t>* live_table_files,
