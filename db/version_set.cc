@@ -1786,9 +1786,6 @@ VersionStorageInfo::VersionStorageInfo(
     current_num_samples_ = ref_vstorage->current_num_samples_;
     oldest_snapshot_seqnum_ = ref_vstorage->oldest_snapshot_seqnum_;
   }
-  //  if (compaction_style == kCompactionStyleGear) {
-  //    CalculateSortedRuns();
-  //  }
 }
 
 Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
@@ -2335,8 +2332,6 @@ void VersionStorageInfo::ComputeCompensatedSizes() {
 int VersionStorageInfo::MaxInputLevel() const {
   if (compaction_style_ == kCompactionStyleLevel) {
     return num_levels() - 2;
-  } else if (compaction_style_ == kCompactionStyleGear) {
-    return num_levels() - 2;  // num_levels = 3, input level = {0,1}
   }
   return 0;
 }
@@ -3332,10 +3327,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
 
   level_max_bytes_.resize(ioptions.num_levels);
   if (!ioptions.level_compaction_dynamic_level_bytes) {
-    base_level_ = (ioptions.compaction_style == kCompactionStyleLevel ||
-                   ioptions.compaction_style == kCompactionStyleGear)
-                      ? 1
-                      : -1;
+    base_level_ = (ioptions.compaction_style == kCompactionStyleLevel) ? 1 : -1;
 
     // Calculate for static bytes base case
     for (int i = 0; i < ioptions.num_levels; ++i) {
