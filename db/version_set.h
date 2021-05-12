@@ -107,11 +107,70 @@ extern void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
 // compaction, blob files, etc.
 class VersionStorageInfo {
  public:
+  // IndexTree is from the idea of Size-Tiered run, We use this to control
+  // the Merged SSTables.
+  struct IndexTree {
+    IndexTree(int _level, FileMetaData* _file, uint64_t _size,
+              uint64_t _compensated_file_size, bool _being_compacted)
+        : level(_level),
+          file(_file),
+          size(_size),
+          compensated_file_size(_compensated_file_size),
+          being_compacted(_being_compacted),
+          fd_list(0) {
+      assert(level != 0 || file != nullptr);
+    }
+    // This index tree is written for the emplace_back function.
+    IndexTree(int _level, FileMetaData* _file, uint64_t _size,
+              uint64_t _compensated_file_size, bool _being_compacted,
+              std::vector<FileMetaData*>& fd_list_)
+        : level(_level),
+          file(_file),
+          size(_size),
+          compensated_file_size(_compensated_file_size),
+          being_compacted(_being_compacted),
+          fd_list(fd_list_) {
+      assert(level != 0 || file != nullptr);
+      assert(size > 0 && compensated_file_size > 0);
+    }
+    void Dump(char* out_buf, size_t out_buf_size,
+              bool print_path = false) const;
+
+    // sorted_run_count is added into the string to print
+    void DumpSizeInfo(char* out_buf, size_t out_buf_size,
+                      size_t sorted_run_count) const;
+
+    bool AddFileToFdList(FileMetaData* fd_ptr, uint64_t target_length) {
+      if (fd_list.size() > target_length) {
+        // The fd_list is too long.
+        return false;
+      } else {
+        fd_list.emplace_back(fd_ptr);
+        assert(fd_list.size() <= target_length);
+        return true;
+      }
+    }
+
+    int level;
+    // `file` Will be null for level > 0. For level = 0, the sorted run is
+    // for this file.
+    FileMetaData* file;
+    // For level > 0, `size` and `compensated_file_size` are sum of sizes all
+    // files in the level. `being_compacted` should be the same for all files
+    // in a non-zero level. Use the value here.
+    uint64_t size;
+    uint64_t compensated_file_size;
+    bool being_compacted;
+    std::vector<FileMetaData*> fd_list;
+  };
+
+ public:
   VersionStorageInfo(const InternalKeyComparator* internal_comparator,
                      const Comparator* user_comparator, int num_levels,
                      CompactionStyle compaction_style,
                      VersionStorageInfo* src_vstorage,
-                     bool _force_consistency_checks);
+                     bool _force_consistency_checks,
+                     int l0_compaction_trigger_num);
   // No copying allowed
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
@@ -512,6 +571,10 @@ class VersionStorageInfo {
       biggest_tree.emplace_back(f);
     }
   }
+  //  std::vector<std::pair<int, std::vector<IndexTree>>> CalculateSortedRuns();
+
+ private:
+    void CalculateSortedRuns();
 
  private:
   const InternalKeyComparator* internal_comparator_;
@@ -609,6 +672,9 @@ class VersionStorageInfo {
 
   // add by jinghuan
   // TODO: update this biggest tree, if there is any L2 files are generated.
+  std::vector<std::pair<int, std::vector<IndexTree>>> tree_level_map;
+  int l0_compaction_trigger_num_;
+  // [ 0:[F1,F2], 1:[F3,F4], 2:[F5,F6]]
   std::vector<FileMetaData>
       biggest_tree;  // the biggest tree, it won't be created at first, the data
                      // structure FileMetaData is not that big.

@@ -9,11 +9,11 @@
 
 #include "db/version_set.h"
 
-#include <stdio.h>
-
 #include <algorithm>
 #include <array>
 #include <cinttypes>
+#include <cmath>
+#include <cstdio>
 #include <list>
 #include <map>
 #include <set>
@@ -1679,11 +1679,66 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
   return status;
 }
 
+void VersionStorageInfo::CalculateSortedRuns() {
+  if (!tree_level_map.empty()) {
+    // this is only used to migrate the sorted runs from a version storage info
+    // with files in it.
+    return;
+  }
+  std::vector<IndexTree> temp;
+  for (auto f : this->LevelFiles(0)) {
+    temp.emplace_back(0, f, f->fd.GetFileSize(), f->compensated_file_size,
+                      f->being_compacted);
+  }
+  tree_level_map.emplace_back(0, temp);
+  for (int level = 1; level < this->num_levels_ - 1; level++) {
+    int file_num_limit = pow(l0_compaction_trigger_num_, level);
+    // A certain Index in level n should contain at most level0_trigger^(n+1)
+    // SST e.g. Level 0 triggers compaction when reaches 10, then the Level 1
+    // should trigger a compaction when there is 100 SST. So, the size of a
+    // IndexTree in level n should has at most 10^n SST.
+    int level_files_index = 0;
+    auto level_files = LevelFiles(level);
+    int num_level_files = level_files.size();
+    int count = 0;
+
+    temp.clear();
+
+    uint64_t total_compensated_size = 0U;
+    uint64_t total_size = 0U;
+    bool being_compacted = false;
+    IndexTree current_node(level, nullptr, 0, 0, false);
+    for (FileMetaData* f : LevelFiles(level)) {
+      if (current_node.AddFileToFdList(f, file_num_limit)) {
+        current_node.being_compacted = f->being_compacted;
+        current_node.size += f->fd.GetFileSize();
+        current_node.compensated_file_size += f->compensated_file_size;
+      } else {
+        // the index tree is fulfilled.
+        temp.emplace_back(level, nullptr, current_node.size,
+                          current_node.compensated_file_size,
+                          current_node.being_compacted, current_node.fd_list);
+
+        current_node = IndexTree(level, nullptr, 0, 0, false);
+        current_node.AddFileToFdList(f, file_num_limit);
+        // still need to add the file
+      }
+    }
+    tree_level_map.emplace_back(level, temp);
+  }
+
+  // the last level consists of only two Index tree, since this function will
+  // only be called by the constructor. We set all files in the last level as
+  // the largest file.
+
+  return;
+}
+
 VersionStorageInfo::VersionStorageInfo(
     const InternalKeyComparator* internal_comparator,
     const Comparator* user_comparator, int levels,
     CompactionStyle compaction_style, VersionStorageInfo* ref_vstorage,
-    bool _force_consistency_checks)
+    bool _force_consistency_checks, int l0_compaction_trigger_num)
     : internal_comparator_(internal_comparator),
       user_comparator_(user_comparator),
       // cfd is nullptr if Version is dummy
@@ -1699,6 +1754,8 @@ VersionStorageInfo::VersionStorageInfo(
       next_file_to_compact_by_size_(num_levels_),
       compaction_score_(num_levels_),
       compaction_level_(num_levels_),
+      tree_level_map(0),
+      l0_compaction_trigger_num_(l0_compaction_trigger_num),
       biggest_tree(0),
       l0_delay_trigger_count_(0),
       accumulated_file_size_(0),
@@ -1724,6 +1781,9 @@ VersionStorageInfo::VersionStorageInfo(
     current_num_samples_ = ref_vstorage->current_num_samples_;
     oldest_snapshot_seqnum_ = ref_vstorage->oldest_snapshot_seqnum_;
   }
+  if (compaction_style == kCompactionStyleGear) {
+    CalculateSortedRuns();
+  }
 }
 
 Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
@@ -1747,7 +1807,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
           (cfd_ == nullptr || cfd_->current() == nullptr)
               ? nullptr
               : cfd_->current()->storage_info(),
-          cfd_ == nullptr ? false : cfd_->ioptions()->force_consistency_checks),
+          cfd_ == nullptr ? false : cfd_->ioptions()->force_consistency_checks,
+          mutable_cf_options.level0_file_num_compaction_trigger),
       vset_(vset),
       next_(this),
       prev_(this),
@@ -4140,6 +4201,42 @@ Status VersionSet::ProcessManifestWrites(
   return s;
 }
 
+void VersionStorageInfo::IndexTree::Dump(char* out_buf, size_t out_buf_size,
+                                         bool print_path) const {
+  if (level == 0) {
+    assert(file != nullptr);
+    if (file->fd.GetPathId() == 0 || !print_path) {
+      snprintf(out_buf, out_buf_size, "file %" PRIu64, file->fd.GetNumber());
+    } else {
+      snprintf(out_buf, out_buf_size,
+               "file %" PRIu64
+               "(path "
+               "%" PRIu32 ")",
+               file->fd.GetNumber(), file->fd.GetPathId());
+    }
+  } else {
+    snprintf(out_buf, out_buf_size, "level %d", level);
+  }
+}
+
+void VersionStorageInfo::IndexTree::DumpSizeInfo(
+    char* out_buf, size_t out_buf_size, size_t sorted_run_count) const {
+  if (level == 0) {
+    assert(file != nullptr);
+    snprintf(out_buf, out_buf_size,
+             "file %" PRIu64 "[%" ROCKSDB_PRIszt
+             "] "
+             "with size %" PRIu64 " (compensated size %" PRIu64 ")",
+             file->fd.GetNumber(), sorted_run_count, file->fd.GetFileSize(),
+             file->compensated_file_size);
+  } else {
+    snprintf(out_buf, out_buf_size,
+             "level %d[%" ROCKSDB_PRIszt
+             "] "
+             "with size %" PRIu64 " (compensated size %" PRIu64 ")",
+             level, sorted_run_count, size, compensated_file_size);
+  }
+}
 // 'datas' is gramatically incorrect. We still use this notation to indicate
 // that this variable represents a collection of column_family_data.
 Status VersionSet::LogAndApply(
