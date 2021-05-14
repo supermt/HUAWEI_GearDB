@@ -97,6 +97,10 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "ExternalSstIngestion";
     case CompactionReason::kPeriodicCompaction:
       return "PeriodicCompaction";
+    case CompactionReason::kGearCompactionAllInOne:
+      return "GearCompactionAllInOne";
+    case CompactionReason::kGearCollectTiered:
+      return "GearCollectTiered";
     case CompactionReason::kNumOfReasons:
       // fall through
     default:
@@ -754,7 +758,6 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   double bytes_written_per_sec = 0;
   // add by jinghuan, all files produced by AllInOneCompaction should be added
   // as the biggest tree. Install this list of file biggest tree.
-
 
   if (stats.bytes_read_non_output_levels > 0) {
     read_write_amp = static_cast<double>(stats.bytes_written +
@@ -1495,6 +1498,8 @@ Status CompactionJob::InstallCompactionResults(
         compaction->InputLevelSummary(&inputs_summary), compact_->total_bytes);
   }
 
+  // Update the Output file data
+
   // Add compaction inputs
   compaction->AddInputDeletions(compact_->compaction->edit());
 
@@ -1584,6 +1589,19 @@ Status CompactionJob::OpenCompactionOutputFile(
     out.meta.oldest_ancester_time = oldest_ancester_time;
     out.meta.file_creation_time = current_time;
     out.finished = false;
+    // add by jinghuan, if this is a kCompactionAllInOne, change the l2position
+//    out.meta.l2_position = -1;
+    auto reason = compact_->compaction->compaction_reason();
+    if (reason == CompactionReason::kGearCompactionAllInOne) {
+      out.meta.l2_position = VersionStorageInfo::l2_large_tree_index;
+    } else if (reason == CompactionReason::kGearCollectTiered) {
+      // only update when the files are write to the last level
+      if (compact_->compaction->output_level() ==
+          cfd->current()->storage_info()->num_levels()) {
+        out.meta.l2_position = VersionStorageInfo::l2_small_tree_index;
+      }
+    }
+
     sub_compact->outputs.push_back(out);
   }
 

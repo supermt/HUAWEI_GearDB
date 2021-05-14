@@ -15,6 +15,59 @@
 #include "db/compaction/compaction_picker.h"
 
 namespace ROCKSDB_NAMESPACE {
+struct IndexTree {
+  IndexTree(int _level, FileMetaData* _file, uint64_t _size,
+            uint64_t _compensated_file_size, bool _being_compacted)
+      : level(_level),
+        file(_file),
+        size(_size),
+        compensated_file_size(_compensated_file_size),
+        being_compacted(_being_compacted),
+        fd_list(0) {
+    assert(level != 0 || file != nullptr);
+  }
+  // This index tree is written for the emplace_back function.
+  IndexTree(int _level, FileMetaData* _file, uint64_t _size,
+            uint64_t _compensated_file_size, bool _being_compacted,
+            std::vector<FileMetaData*>& fd_list_)
+      : level(_level),
+        file(_file),
+        size(_size),
+        compensated_file_size(_compensated_file_size),
+        being_compacted(_being_compacted),
+        fd_list(fd_list_) {
+    assert(level != 0 || file != nullptr);
+    assert(size > 0 && compensated_file_size > 0);
+  }
+  void Dump(char* out_buf, size_t out_buf_size, bool print_path = false) const;
+
+  // sorted_run_count is added into the string to print
+  void DumpSizeInfo(char* out_buf, size_t out_buf_size,
+                    size_t sorted_run_count) const;
+
+  bool AddFileToFdList(FileMetaData* fd_ptr, uint64_t target_length) {
+    if (fd_list.size() >= target_length) {
+      // The fd_list is too long.
+      return false;
+    } else {
+      fd_list.emplace_back(fd_ptr);
+      assert(fd_list.size() <= target_length);
+      return true;
+    }
+  }
+
+  int level;
+  // `file` Will be null for level > 0. For level = 0, the sorted run is
+  // for this file.
+  FileMetaData* file;
+  // For level > 0, `size` and `compensated_file_size` are sum of sizes all
+  // files in the level. `being_compacted` should be the same for all files
+  // in a non-zero level. Use the value here.
+  uint64_t size;
+  uint64_t compensated_file_size;
+  bool being_compacted;
+  std::vector<FileMetaData*> fd_list;
+};
 
 class GearCompactionPicker : public CompactionPicker {
  public:
@@ -79,7 +132,7 @@ class GearCompactionBuilder {
   const ImmutableCFOptions& ioptions_;
   const InternalKeyComparator* icmp_;
   double score_;
-  std::vector<VersionStorageInfo::IndexTree> sorted_runs_;
+  std::vector<IndexTree> sorted_runs_;
   const std::string& cf_name_;
   const MutableCFOptions& mutable_cf_options_;
   VersionStorageInfo* vstorage_;
@@ -87,6 +140,7 @@ class GearCompactionBuilder {
   LogBuffer* log_buffer_;
   const double first_l2_size_ratio_;
   const double upper_level_file_size_ratio_;
+  std::vector<std::pair<int, std::vector<IndexTree>>> tree_level_map;
 
   // function section
  public:
@@ -132,6 +186,18 @@ class GearCompactionBuilder {
   Compaction* PickCompactionToReduceSortedRuns(
       unsigned int ratio, unsigned int max_number_of_files_to_compact);
   Compaction* PickCompactionForLevel(int level);
+
+  void getAllIndexTrees(std::vector<IndexTree>* results);
+  std::vector<std::pair<int, std::vector<IndexTree>>>& getTreeLevelMap() {
+    return tree_level_map;
+  }
+  bool L2SmallTreeIsFilled() {
+    assert((int)tree_level_map.size() == vstorage_->num_levels());
+    return (double)tree_level_map[vstorage_->num_levels() - 1].second.size() >=
+           pow(mutable_cf_options_.level0_file_num_compaction_trigger,
+               vstorage_->num_levels() - 1);
+  }
+  void CalculateSortedRuns();
 };
 
 struct InputFileInfo {

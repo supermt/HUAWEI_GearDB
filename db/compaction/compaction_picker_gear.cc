@@ -30,12 +30,116 @@ namespace ROCKSDB_NAMESPACE {
 // There are two general cases:
 // When the upper level are fullfilled.
 // Or, the first L2 file reaches 4% of total size.
+void IndexTree::Dump(char* out_buf, size_t out_buf_size,
+                     bool print_path) const {
+  if (level == 0) {
+    assert(file != nullptr);
+    if (file->fd.GetPathId() == 0 || !print_path) {
+      snprintf(out_buf, out_buf_size, "file %" PRIu64, file->fd.GetNumber());
+    } else {
+      snprintf(out_buf, out_buf_size,
+               "file %" PRIu64
+               "(path "
+               "%" PRIu32 ")",
+               file->fd.GetNumber(), file->fd.GetPathId());
+    }
+  } else {
+    snprintf(out_buf, out_buf_size, "level %d", level);
+  }
+}
+
+void IndexTree::DumpSizeInfo(char* out_buf, size_t out_buf_size,
+                             size_t sorted_run_count) const {
+  if (level == 0) {
+    assert(file != nullptr);
+    snprintf(out_buf, out_buf_size,
+             "file %" PRIu64 "[%" ROCKSDB_PRIszt
+             "] "
+             "with size %" PRIu64 " (compensated size %" PRIu64 ")",
+             file->fd.GetNumber(), sorted_run_count, file->fd.GetFileSize(),
+             file->compensated_file_size);
+  } else {
+    snprintf(out_buf, out_buf_size,
+             "level %d[%" ROCKSDB_PRIszt
+             "] "
+             "with size %" PRIu64 " (compensated size %" PRIu64 ")",
+             level, sorted_run_count, size, compensated_file_size);
+  }
+}
+void GearCompactionBuilder::CalculateSortedRuns() {
+  // Think this, in previous implementation, all index tree are calculated at
+  // the beginning of PickCompaction. So, this index tree structure should not
+  // be stored
+  tree_level_map.clear();
+
+  std::vector<IndexTree> temp;
+  for (auto f : vstorage_->LevelFiles(0)) {
+    temp.emplace_back(0, f, f->fd.GetFileSize(), f->compensated_file_size,
+                      f->being_compacted);
+  }
+  tree_level_map.emplace_back(0, temp);
+  for (int level = 1; level < vstorage_->num_levels() - 1; level++) {
+    int file_num_limit =
+        (int)pow(mutable_cf_options_.level0_file_num_compaction_trigger, level);
+    temp.clear();
+
+    uint64_t total_compensated_size = 0U;
+    uint64_t total_size = 0U;
+    bool being_compacted = false;
+    IndexTree current_node(level, nullptr, 0, 0, false);
+    for (FileMetaData* f : vstorage_->LevelFiles(level)) {
+      if (current_node.AddFileToFdList(f, file_num_limit)) {
+        current_node.size += f->fd.GetFileSize();
+        current_node.compensated_file_size += f->compensated_file_size;
+        if (f->being_compacted) {
+          current_node.being_compacted = f->being_compacted;
+        }
+      } else {
+        // the index tree is fulfilled.
+        temp.emplace_back(level, nullptr, current_node.size,
+                          current_node.compensated_file_size,
+                          current_node.being_compacted, current_node.fd_list);
+
+        current_node = IndexTree(level, nullptr, 0, 0, false);
+        current_node.AddFileToFdList(f, file_num_limit);
+        // still need to add the file
+      }
+    }
+    tree_level_map.emplace_back(level, temp);
+  }
+  // Now we record all data inside the last level;
+  int last_level = vstorage_->num_levels() - 1;
+  temp.clear();
+  // l2_position = 0, the small tree
+  temp.emplace_back(last_level, nullptr, 0, 0, false);
+  // l2_position = 1, the large tree
+  temp.emplace_back(last_level, nullptr, 0, 0, false);
+  // if l2_position = -1, abort, and -1 can't be used in array index, so ,there
+  // is no need for assertion
+  for (FileMetaData* f : vstorage_->LevelFiles(last_level)) {
+    temp[f->l2_position].fd_list.push_back(f);
+    temp[f->l2_position].size += f->fd.GetFileSize();
+    temp[f->l2_position].compensated_file_size += f->compensated_file_size;
+    if (f->being_compacted) {
+      temp[f->l2_position].being_compacted = f->being_compacted;
+    }
+  }
+  tree_level_map.emplace_back(last_level, temp);
+}
+
+void GearCompactionBuilder::getAllIndexTrees(std::vector<IndexTree>* results) {
+  CalculateSortedRuns();
+  for (auto level_files : tree_level_map) {
+    for (auto tree : level_files.second) {
+      results->emplace_back(tree);
+    }
+  }
+}
 
 bool GearCompactionPicker::NeedsCompaction(
     const VersionStorageInfo* vstorage) const {
   // precondition of universal compaction
   const int kLevel0 = 0;
-  std::cout << "Check the compaction" << std::endl;
   if (vstorage->CompactionScore(kLevel0) >= 1) {
     return true;
   }
@@ -95,9 +199,10 @@ SmallestKeyHeap create_level_heap(Compaction* c, const Comparator* ucmp) {
 Compaction* GearCompactionBuilder::PickCompaction() {
   const int kLevel0 = 0;
   score_ = vstorage_->CompactionScore(kLevel0);
-  sorted_runs_ = vstorage_->getAllIndexTrees();
+  sorted_runs_.clear();
+  getAllIndexTrees(&sorted_runs_);
 
-  if (sorted_runs_.size() == 0 ||
+  if (sorted_runs_.empty() &&
       (vstorage_->FilesMarkedForPeriodicCompaction().empty() &&
        vstorage_->FilesMarkedForCompaction().empty()
        //       && sorted_runs.size() <
@@ -122,7 +227,7 @@ Compaction* GearCompactionBuilder::PickCompaction() {
   // small tree is larger than a certain threshold.
 
   Compaction* c = nullptr;
-  if (vstorage_->L2SmallTreeIsFilled()) {
+  if (L2SmallTreeIsFilled()) {
     // correspond to the Periodic Compaction
     c = PickCompactionLastLevel();
   }
@@ -132,11 +237,11 @@ Compaction* GearCompactionBuilder::PickCompaction() {
     // We skip the ReduceSizeAmp Compaction, and the read size ratio compaction
 
     // search through the levels,  find if any level is fulfilled
-    auto& tree_level_map = vstorage_->getTreeLevelMap();
     int target_level = -1;
     for (int i = 0; i < vstorage_->num_levels() - 1; i++) {
       if ((int)(tree_level_map[i].second.size()) >
-          mutable_cf_options_.level0_file_num_compaction_trigger) {
+          //          mutable_cf_options_.level0_file_num_compaction_trigger
+          pow(mutable_cf_options_.level0_file_num_compaction_trigger, i + 1)) {
         for (auto& tree : tree_level_map[i].second) {
           if (tree.being_compacted) {
             continue;
@@ -427,14 +532,17 @@ Compaction* GearCompactionBuilder::PickCompactionToOldest(
 }
 
 Compaction* GearCompactionBuilder::PickCompactionForLevel(int level) {
-  auto& level_trees = vstorage_->getTreeLevelMap()[level].second;
+  auto& level_trees = tree_level_map[level].second;
   assert((int)level_trees.size() >=
          mutable_cf_options_.level0_file_num_compaction_trigger);
 
-  std::vector<VersionStorageInfo::IndexTree> candidates;
+  auto first_index_tree = tree_level_map[level + 1].second;
+
+  std::vector<IndexTree> candidates;
   for (const auto& f : level_trees) {
-    candidates.push_back(f);
+    if (!f.being_compacted) candidates.push_back(f);
   }
+
 
   if (candidates.size() <
       mutable_cf_options_.compaction_options_universal.min_merge_width) {
@@ -446,7 +554,7 @@ Compaction* GearCompactionBuilder::PickCompactionForLevel(int level) {
     inputs[i].level = 0 + static_cast<int>(i);
   }
   int loop = 0;
-  for (auto& picking_sr : level_trees) {
+  for (auto& picking_sr : candidates) {
     if (picking_sr.level == 0) {
       FileMetaData* f = picking_sr.file;
       inputs[0].files.push_back(f);
@@ -461,8 +569,8 @@ Compaction* GearCompactionBuilder::PickCompactionForLevel(int level) {
                      "merge upper level files", file_num_buf);
     loop++;
   }
-  int start_level = candidates[0].level;
-  int output_level = candidates[0].level + 1;
+  int start_level = level;
+  int output_level = level + 1;
 
   uint64_t estimated_total_size = 0;
   for (auto& picked_it : candidates) {
@@ -490,7 +598,7 @@ Compaction* GearCompactionBuilder::PickCompactionToReduceSortedRuns(
   unsigned int max_merge_width =
       mutable_cf_options_.compaction_options_universal.max_merge_width;
 
-  const VersionStorageInfo::IndexTree* sr = nullptr;
+  const IndexTree* sr = nullptr;
   bool done = false;
   size_t start_index = 0;
   unsigned int candidate_count = 0;
@@ -542,7 +650,7 @@ Compaction* GearCompactionBuilder::PickCompactionToReduceSortedRuns(
     for (size_t i = loop + 1;
          candidate_count < max_files_to_compact && i < sorted_runs_.size();
          i++) {
-      const VersionStorageInfo::IndexTree* succeeding_sr = &sorted_runs_[i];
+      const IndexTree* succeeding_sr = &sorted_runs_[i];
       if (succeeding_sr->being_compacted) {
         break;
       }
@@ -583,7 +691,7 @@ Compaction* GearCompactionBuilder::PickCompactionToReduceSortedRuns(
     } else {
       for (size_t i = loop;
            i < loop + candidate_count && i < sorted_runs_.size(); i++) {
-        const VersionStorageInfo::IndexTree* skipping_sr = &sorted_runs_[i];
+        const IndexTree* skipping_sr = &sorted_runs_[i];
         char file_num_buf[256];
         skipping_sr->DumpSizeInfo(file_num_buf, sizeof(file_num_buf), loop);
         ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: Skipping %s",
@@ -684,7 +792,7 @@ Compaction* GearCompactionBuilder::PickCompactionLastLevel() {
   ROCKS_LOG_BUFFER(log_buffer_, "[%s] Gear: Last Level Compaction",
                    cf_name_.c_str());
   // In this function, we collect all files in L2, and mark all outputs
-  auto tree_level_map = vstorage_->getTreeLevelMap();
+  getTreeLevelMap();
 
   int last_level = vstorage_->num_levels();
   auto l2_trees = tree_level_map[last_level].second;
