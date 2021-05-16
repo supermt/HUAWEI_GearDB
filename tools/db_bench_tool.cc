@@ -3785,7 +3785,7 @@ class Benchmark {
     shared.start = false;
     if (FLAGS_benchmark_write_rate_limit > 0) {
       shared.write_rate_limiter.reset(
-          NewGenericRateLimiter(FLAGS_benchmark_write_rate_lim it));
+          NewGenericRateLimiter(FLAGS_benchmark_write_rate_limit));
     }
     if (FLAGS_benchmark_read_rate_limit > 0) {
       shared.read_rate_limiter.reset(NewGenericRateLimiter(

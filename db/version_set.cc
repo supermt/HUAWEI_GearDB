@@ -2656,6 +2656,7 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
   assert(file_locations_.find(file_number) == file_locations_.end());
   file_locations_.emplace(file_number,
                           FileLocation(level, level_files->size() - 1));
+
 }
 
 void VersionStorageInfo::AddBlobFile(
