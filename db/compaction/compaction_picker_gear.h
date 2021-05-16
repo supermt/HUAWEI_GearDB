@@ -147,34 +147,53 @@ class GearCompactionBuilder {
   // Pick a path ID to place a newly generated file, with its level
   static uint32_t GetPathId(const ImmutableCFOptions& ioptions,
                             const MutableCFOptions& mutable_cf_options,
-                            uint64_t file_size) {
-    // Two conditions need to be satisfied:
-    // (1) the target path needs to be able to hold the file's size
-    // (2) Total size left in this and previous paths need to be not
-    //     smaller than expected future file size before this new file is
-    //     compacted, which is estimated based on size_ratio.
-    // For example, if now we are compacting files of size (1, 1, 2, 4, 8),
-    // we will make sure the target file, probably with size of 16, will be
-    // placed in a path so that eventually when new files are generated and
-    // compacted to (1, 1, 2, 4, 8, 16), all those files can be stored in or
-    // before the path we chose.
-    //
-    // considered in this algorithm. So the target size can be violated in
-    // that case. We need to improve it.
-    uint64_t accumulated_size = 0;
-    uint64_t future_size =
-        file_size *
-        (100 - mutable_cf_options.compaction_options_universal.size_ratio) /
-        100;
+                            int level) {
+    // unlike the universal compaction, gear compaction still follows the
+    // level-based rules.
     uint32_t p = 0;
     assert(!ioptions.cf_paths.empty());
-    for (; p < ioptions.cf_paths.size() - 1; p++) {
-      uint64_t target_size = ioptions.cf_paths[p].target_size;
-      if (target_size > file_size &&
-          accumulated_size + (target_size - file_size) > future_size) {
-        return p;
+
+    // size remaining in the most recent path
+    uint64_t current_path_size = ioptions.cf_paths[0].target_size;
+
+    uint64_t level_size;
+    int cur_level = 0;
+
+    // max_bytes_for_level_base denotes L1 size.
+    // We estimate L0 size to be the same as L1.
+    level_size = mutable_cf_options.max_bytes_for_level_base;
+
+    // Last path is the fallback
+    while (p < ioptions.cf_paths.size() - 1) {
+      if (level_size <= current_path_size) {
+        if (cur_level == level) {
+          // Does desired level fit in this path?
+          return p;
+        } else {
+          current_path_size -= level_size;
+          if (cur_level > 0) {
+            if (ioptions.level_compaction_dynamic_level_bytes) {
+              // Currently, level_compaction_dynamic_level_bytes is ignored when
+              // multiple db paths are specified. https://github.com/facebook/
+              // rocksdb/blob/master/db/column_family.cc.
+              // Still, adding this check to avoid accidentally using
+              // max_bytes_for_level_multiplier_additional
+              level_size = static_cast<uint64_t>(
+                  level_size *
+                  mutable_cf_options.max_bytes_for_level_multiplier);
+            } else {
+              level_size = static_cast<uint64_t>(
+                  level_size *
+                  mutable_cf_options.max_bytes_for_level_multiplier *
+                  mutable_cf_options.MaxBytesMultiplerAdditional(cur_level));
+            }
+          }
+          cur_level++;
+          continue;
+        }
       }
-      accumulated_size += target_size;
+      p++;
+      current_path_size = ioptions.cf_paths[p].target_size;
     }
     return p;
   }

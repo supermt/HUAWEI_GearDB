@@ -444,8 +444,7 @@ Compaction* GearCompactionBuilder::PickDeleteTriggeredCompaction() {
   for (FileMetaData* f : vstorage_->LevelFiles(output_level)) {
     estimated_total_size += f->fd.GetFileSize();
   }
-  uint32_t path_id =
-      GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
+  uint32_t path_id = GetPathId(ioptions_, mutable_cf_options_, output_level);
   return new Compaction(
       vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
       output_level,
@@ -464,13 +463,6 @@ Compaction* GearCompactionBuilder::PickCompactionToOldest(
     size_t start_index, CompactionReason compaction_reason) {
   assert(start_index < sorted_runs_.size());
 
-  // Estimate total file size
-  uint64_t estimated_total_size = 0;
-  for (size_t loop = start_index; loop < sorted_runs_.size(); loop++) {
-    estimated_total_size += sorted_runs_[loop].size;
-  }
-  uint32_t path_id =
-      GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
   int start_level = sorted_runs_[start_index].level;
 
   std::vector<CompactionInputFiles> inputs(vstorage_->num_levels());
@@ -516,6 +508,7 @@ Compaction* GearCompactionBuilder::PickCompactionToOldest(
     output_level--;
   }
 
+  uint32_t path_id = GetPathId(ioptions_, mutable_cf_options_, output_level);
   // We never check size for
   // compaction_options_universal.compression_size_percent,
   // because we always compact all the files, so always compress.
@@ -536,13 +529,10 @@ Compaction* GearCompactionBuilder::PickCompactionForLevel(int level) {
   assert((int)level_trees.size() >=
          mutable_cf_options_.level0_file_num_compaction_trigger);
 
-  auto first_index_tree = tree_level_map[level + 1].second;
-
   std::vector<IndexTree> candidates;
   for (const auto& f : level_trees) {
     if (!f.being_compacted) candidates.push_back(f);
   }
-
 
   if (candidates.size() <
       mutable_cf_options_.compaction_options_universal.min_merge_width) {
@@ -572,12 +562,39 @@ Compaction* GearCompactionBuilder::PickCompactionForLevel(int level) {
   int start_level = level;
   int output_level = level + 1;
 
+  if (!picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+                                       &inputs[start_level]) ||
+      picker_->FilesRangeOverlapWithCompaction(inputs, output_level)) {
+    // A locked (pending compaction) input-level file was pulled in due to
+    // user-key overlap.
+    return nullptr;
+  }
+
+  if (start_level == 0) {
+    picker_->GetOverlappingL0Files(vstorage_, &inputs[0], output_level,
+                                   nullptr);
+  }
+  // use the compaction_picker to collect the range
+  InternalKey left_key, right_key;
+  picker_->GetRange(inputs, &left_key, &right_key);
+  // use the version storage info to search the overlapping files.
+  CompactionInputFiles output_level_inputs;
+  output_level_inputs.level = output_level;
+  vstorage_->GetOverlappingInputs(output_level, &left_key, &right_key,
+                                  &output_level_inputs.files);
+  if (!output_level_inputs.empty() &&
+      !picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+                                       &output_level_inputs)) {
+    // need to expand the compaction, but the outputs are locked.
+    // the compaction output files are locked. Return an empty compaction
+    return nullptr;
+  }
+  // notice that we have searched through the upper levels.
   uint64_t estimated_total_size = 0;
   for (auto& picked_it : candidates) {
     estimated_total_size += sorted_runs_[loop].size;
   }
-  uint32_t path_id =
-      GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
+  uint32_t path_id = GetPathId(ioptions_, mutable_cf_options_, output_level);
 
   return new Compaction(
       vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
@@ -728,8 +745,6 @@ Compaction* GearCompactionBuilder::PickCompactionToReduceSortedRuns(
   for (unsigned int i = 0; i < first_index_after; i++) {
     estimated_total_size += sorted_runs_[i].size;
   }
-  uint32_t path_id =
-      GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
   int start_level = sorted_runs_[start_index].level;
   int output_level;
   if (first_index_after == sorted_runs_.size()) {
@@ -740,6 +755,7 @@ Compaction* GearCompactionBuilder::PickCompactionToReduceSortedRuns(
     output_level = sorted_runs_[first_index_after].level - 1;
   }
 
+  uint32_t path_id = GetPathId(ioptions_, mutable_cf_options_, output_level);
   // last level is reserved for the files ingested behind
   if (ioptions_.allow_ingest_behind &&
       (output_level == vstorage_->num_levels() - 1)) {
