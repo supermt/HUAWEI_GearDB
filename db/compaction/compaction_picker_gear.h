@@ -212,7 +212,12 @@ class GearCompactionBuilder {
   }
   bool L2SmallTreeIsFilled() {
     assert((int)tree_level_map.size() == vstorage_->num_levels());
-    return (double)tree_level_map[vstorage_->num_levels() - 1].second.size() >=
+    // noticed that, there is only 2 index tree here (one big, one small)
+    double small_tree_size = 0.0;
+    small_tree_size = tree_level_map[vstorage_->num_levels() - 1]
+                          .second[VersionStorageInfo::l2_small_tree_index]
+                          .fd_list.size();
+    return small_tree_size >=
            pow(mutable_cf_options_.level0_file_num_compaction_trigger,
                vstorage_->num_levels() - 1);
   }
