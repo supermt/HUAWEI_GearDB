@@ -209,7 +209,7 @@ Compaction* GearCompactionBuilder::PickCompaction() {
        //       mutable_cf_options_.level0_file_num_compaction_trigger
        // We would spend more time on ensuring there is nothing to compact
        )) {
-    ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: nothing to do\n",
+    ROCKS_LOG_BUFFER(log_buffer_, "[%s] Gear: nothing to do\n",
                      cf_name_.c_str());
     return nullptr;
   }
@@ -260,7 +260,7 @@ Compaction* GearCompactionBuilder::PickCompaction() {
       // compact
       if ((c = PickCompactionForLevel(target_level)) != nullptr) {
         ROCKS_LOG_BUFFER(log_buffer_,
-                         "[%s] Universal: compacting for level %u\n",
+                         "[%s] Gear: compacting for level %u\n",
                          cf_name_.c_str(), target_level);
       }
     }
@@ -451,7 +451,7 @@ Compaction* GearCompactionBuilder::PickDeleteTriggeredCompaction() {
       vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
       output_level,
       MaxFileSizeForLevel(mutable_cf_options_, output_level,
-                          kCompactionStyleUniversal),
+                          kCompactionStyleGear),
       /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
                          output_level, 1),
@@ -658,7 +658,7 @@ Compaction* GearCompactionBuilder::PickCompactionToReduceSortedRuns(
       char file_num_buf[kFormatFileNumberBufSize];
       sr->Dump(file_num_buf, sizeof(file_num_buf));
       ROCKS_LOG_BUFFER(log_buffer_,
-                       "[%s] Universal: %s"
+                       "[%s] Gear: %s"
                        "[%d] being compacted, skipping",
                        cf_name_.c_str(), file_num_buf, loop);
 
@@ -823,7 +823,7 @@ Compaction* GearCompactionBuilder::PickCompactionLastLevel() {
   // In this function, we collect all files in L2, and mark all outputs
   getTreeLevelMap();
 
-  int last_level = vstorage_->num_levels();
+  int last_level = vstorage_->num_levels() -1 ;
   auto l2_trees = tree_level_map[last_level].second;
   if (l2_trees[VersionStorageInfo::l2_small_tree_index].being_compacted ||
       l2_trees[VersionStorageInfo::l2_large_tree_index].being_compacted) {
