@@ -236,9 +236,11 @@ Compaction* GearCompactionBuilder::PickCompaction() {
   if (c == nullptr) {
     // We skip the ReduceSizeAmp Compaction, and the read size ratio compaction
 
-    // search through the levels,  find if any level is fulfilled
+    // search through the levels from back to the front
+    // L2 compaction's priority is always higher than L1
+    // L1->L2's compaction's priority is also higher than L0
     int target_level = -1;
-    for (int i = 0; i < vstorage_->num_levels() - 1; i++) {
+    for (int i = vstorage_->num_levels() - 2; i >= 0; i--) {
       if ((int)(tree_level_map[i].second.size()) >
           //          mutable_cf_options_.level0_file_num_compaction_trigger
           pow(mutable_cf_options_.level0_file_num_compaction_trigger, i + 1)) {
