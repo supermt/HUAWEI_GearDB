@@ -625,6 +625,13 @@ DEFINE_bool(mutable_compaction_thread_prior, false,
             "trigger multi_level compaction prior");
 DEFINE_bool(detailed_running_stats, false,
             "Whether record more detailed information in report agent");
+DEFINE_bool(huawei_tuner, false,
+            "Slow down the write-in speed according to the size of compaction");
+DEFINE_int64(huawei_tuner_base_speed, 1500000,
+             "the initial speed of write-in speed, calculated by bytes.");
+DEFINE_double(huawei_tuner_initial_l2_time, 0.5, "The basic l2 speed");
+DEFINE_double(huawei_tuner_constant_k, 1.25,
+              "The coefficient for decreasing rate limiter");
 
 // end jinghuan
 DEFINE_int64(tuner_step_size, 0,
@@ -4873,9 +4880,27 @@ class Benchmark {
         expanded_keys.emplace_back(AllocateKey(&expanded_key_guard));
       }
     }
+    DBImpl* db_ptr = reinterpret_cast<DBImpl*>(db_.db);
 
+    std::unordered_map<Compaction*, int64_t> in_progress_L2_compaction_map = {};
     int64_t stage = 0;
     int64_t num_written = 0;
+
+    // add by jinghuan, if huawei tuner is active, initial the write rate
+    // limiter}
+    int64_t s0 = 0;
+    if (FLAGS_huawei_tuner) {
+      // this tuner can be used only in Gear compaction.
+      assert(FLAGS_compaction_style_e == kCompactionStyleGear);
+      FLAGS_huawei_tuner_base_speed = 50000 * (10 + 15);
+      s0 = FLAGS_huawei_tuner_base_speed;
+      thread->shared->write_rate_limiter.reset(NewGenericRateLimiter(s0));
+    }
+    uint64_t before_write = FLAGS_env->NowMicros();
+    std::vector<uint64_t> l2_compaction_moment = {};
+    int last_l2_compaction = 0;
+    // end jinghuan
+
     while (!duration.Done(entries_per_batch_)) {
       if (duration.GetStage() != stage) {
         stage = duration.GetStage();
@@ -4999,6 +5024,64 @@ class Benchmark {
               NewGenericRateLimiter(write_rate));
         }
       }
+      if (FLAGS_huawei_tuner) {
+        uint64_t now = FLAGS_env->NowMicros();
+
+        uint64_t usecs_since_last = 0;
+        if (now > thread->stats.GetSineInterval()) {
+          usecs_since_last = now - thread->stats.GetSineInterval();
+        } else {
+          usecs_since_last = 0;
+        }
+
+        // no need to change the rate each compaction.
+        if (usecs_since_last >
+            (FLAGS_sine_write_rate_interval_milliseconds * uint64_t{1000})) {
+          double usecs_since_start =
+              static_cast<double>(now - thread->stats.GetStart());
+          thread->stats.ResetSineInterval();
+          auto compaction_queue = db_ptr->getCompactionQueue();
+          if (!compaction_queue->empty()) {
+            // check through each level.
+            int64_t s2 = LONG_MAX;
+            double spare_time = FLAGS_huawei_tuner_constant_k *
+                                FLAGS_huawei_tuner_initial_l2_time;
+            auto picker = compaction_queue->front()->compaction_picker();
+            if (picker->GetScheduleAllInOneCompaction() > last_l2_compaction) {
+              last_l2_compaction = picker->GetScheduleAllInOneCompaction();
+              // spare_time = ax+b
+              spare_time = FLAGS_huawei_tuner_constant_k * last_l2_compaction +
+                           FLAGS_huawei_tuner_initial_l2_time;
+              auto vfs = compaction_queue->front()->current()->storage_info();
+
+              // calculate the s2 time.
+              int64_t spare_size = 0;
+              int64_t upper_level_size = 0;
+              int64_t last_level_size = 0;
+              for (int i = 0; i < FLAGS_num_levels - 2; i++) {
+                upper_level_size += vfs->NumLevelBytes(i);
+              }
+              upper_level_size = std::max(
+                  upper_level_size,
+                  FLAGS_write_buffer_size *
+                      (long)std::pow(FLAGS_level0_file_num_compaction_trigger,
+                                     FLAGS_num_levels - 2));
+              last_level_size = vfs->NumLevelFiles(FLAGS_num_levels - 1);
+              spare_size = std::max(upper_level_size, last_level_size);
+
+              s2 = spare_size / spare_time;
+              std::cout << "rate changed: " << s2 << " bytes/s" << std::endl;
+              int64_t write_rate = std::min(s0, s2);
+              thread->shared->write_rate_limiter.reset(
+                  NewGenericRateLimiter(write_rate));
+              s0 = write_rate;
+              // now the system's write-in speed is set to s2, update it.
+            }  // compaction number haven't increased
+          }
+          // if the queue is empty, just push another write into the rocksdb.
+        }
+      }
+
       if (!s.ok()) {
         s = listener_->WaitForRecovery(600000000) ? Status::OK() : s;
       }

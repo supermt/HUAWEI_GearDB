@@ -227,8 +227,9 @@ Compaction* GearCompactionBuilder::PickCompaction() {
   // small tree is larger than a certain threshold.
 
   Compaction* c = nullptr;
-  if (L2SmallTreeIsFilled()) {
-    // correspond to the Periodic Compaction
+  if (L2SmallTreeIsFilled() && !picker_->IsLevel0CompactionInProgress()) {
+    // if the last level compaction is in progress, we still don't need to
+    // collect any files.
     c = PickCompactionLastLevel();
   }
 
@@ -241,9 +242,8 @@ Compaction* GearCompactionBuilder::PickCompaction() {
     // L1->L2's compaction's priority is also higher than L0
     int target_level = -1;
     for (int i = vstorage_->num_levels() - 2; i >= 0; i--) {
-      if ((int)(tree_level_map[i].second.size()) >
-          //          mutable_cf_options_.level0_file_num_compaction_trigger
-          pow(mutable_cf_options_.level0_file_num_compaction_trigger, i + 1)) {
+      if ((int)(tree_level_map[i].second.size()) >=
+          mutable_cf_options_.level0_file_num_compaction_trigger) {
         for (auto& tree : tree_level_map[i].second) {
           if (tree.being_compacted) {
             continue;
@@ -259,8 +259,7 @@ Compaction* GearCompactionBuilder::PickCompaction() {
       // different from origin design, we will collect an entire level to do
       // compact
       if ((c = PickCompactionForLevel(target_level)) != nullptr) {
-        ROCKS_LOG_BUFFER(log_buffer_,
-                         "[%s] Gear: compacting for level %u\n",
+        ROCKS_LOG_BUFFER(log_buffer_, "[%s] Gear: compacting for level %u\n",
                          cf_name_.c_str(), target_level);
       }
     }
@@ -468,8 +467,8 @@ Compaction* GearCompactionBuilder::PickCompactionToOldest(
   int start_level = sorted_runs_[start_index].level;
 
   std::vector<CompactionInputFiles> inputs(vstorage_->num_levels());
-  for (size_t i = 0; i < inputs.size(); ++i) {
-    inputs[i].level = start_level + static_cast<int>(i);
+  for (size_t i = 0; i < inputs.size(); i++) {
+    inputs[i].level = i;  // here we should not modify the level.
   }
 
   for (size_t loop = start_index; loop < sorted_runs_.size(); loop++) {
@@ -557,8 +556,8 @@ Compaction* GearCompactionBuilder::PickCompactionForLevel(int level) {
     }
     char file_num_buf[256];
     picking_sr.DumpSizeInfo(file_num_buf, sizeof(file_num_buf), loop);
-    ROCKS_LOG_BUFFER(log_buffer_, "[%s] Gear : %s picking %s", cf_name_.c_str(),
-                     "merge upper level files", file_num_buf);
+//    ROCKS_LOG_BUFFER(log_buffer_, "[%s] Gear : %s picking %s", cf_name_.c_str(),
+//                     "merge upper level files", file_num_buf);
     loop++;
   }
   int start_level = level;
@@ -572,7 +571,7 @@ Compaction* GearCompactionBuilder::PickCompactionForLevel(int level) {
     return nullptr;
   }
   autovector<std::pair<int, FileMetaData*>> level_files;
-  if (start_level == 0) {
+  if (start_level == 0 && !picker_->IsLevel0CompactionInProgress()) {
     // try to collect as many l0 files as possible.
     picker_->GetOverlappingL0Files(vstorage_, &inputs[0], output_level,
                                    nullptr);
@@ -820,10 +819,7 @@ Compaction* GearCompactionBuilder::PickCompactionToReduceSortedRuns(
 Compaction* GearCompactionBuilder::PickCompactionLastLevel() {
   ROCKS_LOG_BUFFER(log_buffer_, "[%s] Gear: Last Level Compaction",
                    cf_name_.c_str());
-  // In this function, we collect all files in L2, and mark all outputs
-  getTreeLevelMap();
-
-  int last_level = vstorage_->num_levels() -1 ;
+  int last_level = vstorage_->num_levels() - 1;
   auto l2_trees = tree_level_map[last_level].second;
   if (l2_trees[VersionStorageInfo::l2_small_tree_index].being_compacted ||
       l2_trees[VersionStorageInfo::l2_large_tree_index].being_compacted) {
@@ -832,7 +828,7 @@ Compaction* GearCompactionBuilder::PickCompactionLastLevel() {
   }
 
   Compaction* c = PickCompactionToOldest(
-      sorted_runs_.size() - 3, CompactionReason::kGearCompactionAllInOne);
+      sorted_runs_.size() - 2, CompactionReason::kGearCompactionAllInOne);
 
   TEST_SYNC_POINT_CALLBACK(
       "UniversalCompactionPicker::PickCompactionLastLevel:Return", c);

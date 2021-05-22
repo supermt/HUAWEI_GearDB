@@ -15,6 +15,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "db/column_family.h"
 #include "file/filename.h"
 #include "logging/log_buffer.h"
@@ -347,9 +348,8 @@ Compaction* CompactionPicker::CompactFiles(
     } else {
       base_level = 1;
     }
-    compression_type =
-        GetCompressionType(ioptions_, vstorage, mutable_cf_options,
-                           output_level, base_level);
+    compression_type = GetCompressionType(
+        ioptions_, vstorage, mutable_cf_options, output_level, base_level);
   } else {
     // TODO(ajkr): `CompactionOptions` offers configurable `CompressionType`
     // without configurable `CompressionOptions`, which is inconsistent.
@@ -1042,6 +1042,10 @@ void CompactionPicker::RegisterCompaction(Compaction* c) {
       ioptions_.compaction_style == kCompactionStyleUniversal) {
     level0_compactions_in_progress_.insert(c);
   }
+  if (c->compaction_reason() == CompactionReason::kGearCompactionAllInOne) {
+    all_in_one_compaction_in_progress.insert(c);
+    scheduled_all_in_one_num++;
+  }
   compactions_in_progress_.insert(c);
 }
 
@@ -1052,6 +1056,9 @@ void CompactionPicker::UnregisterCompaction(Compaction* c) {
   if (c->start_level() == 0 ||
       ioptions_.compaction_style == kCompactionStyleUniversal) {
     level0_compactions_in_progress_.erase(c);
+  }
+  if (c->compaction_reason() == CompactionReason::kGearCompactionAllInOne) {
+    all_in_one_compaction_in_progress.erase(c);
   }
   compactions_in_progress_.erase(c);
 }
