@@ -66,7 +66,7 @@ void IndexTree::DumpSizeInfo(char* out_buf, size_t out_buf_size,
              level, sorted_run_count, size, compensated_file_size);
   }
 }
-void GearCompactionBuilder::CalculateSortedRuns() {
+void GearCompactionBuilder::BuildTreeLevelMap() {
   // Think this, in previous implementation, all index tree are calculated at
   // the beginning of PickCompaction. So, this index tree structure should not
   // be stored
@@ -127,13 +127,39 @@ void GearCompactionBuilder::CalculateSortedRuns() {
   tree_level_map.emplace_back(last_level, temp);
 }
 
-void GearCompactionBuilder::getAllIndexTrees(std::vector<IndexTree>* results) {
-  CalculateSortedRuns();
-  for (auto level_files : tree_level_map) {
-    for (auto tree : level_files.second) {
-      results->emplace_back(tree);
+void CalculateSortedRuns(const VersionStorageInfo* vstorage,
+                         std::vector<SortedRun>* ret) {
+  ret->clear();
+  for (auto* f : vstorage->LevelFiles(0)) {
+    ret->emplace_back(0, f, f->fd.GetFileSize(), f->compensated_file_size,
+                      f->being_compacted);
+  }
+  for (int level = 1; level < vstorage->num_levels(); level++) {
+    uint64_t total_compensated_size = 0U;
+    uint64_t total_size = 0U;
+    bool being_compacted = false;
+    for (FileMetaData* f : vstorage->LevelFiles(level)) {
+      total_compensated_size += f->compensated_file_size;
+      total_size += f->fd.GetFileSize();
+      // Size amp, read amp and periodic compactions always include all files
+      // for a non-zero level. However, a delete triggered compaction and
+      // a trivial move might pick a subset of files in a sorted run. So
+      // always check all files in a sorted run and mark the entire run as
+      // being compacted if one or more files are being compacted
+      if (f->being_compacted) {
+        being_compacted = f->being_compacted;
+      }
+    }
+    if (total_compensated_size > 0) {
+      ret->emplace_back(level, nullptr, total_size, total_compensated_size,
+                        being_compacted);
     }
   }
+}
+
+void GearCompactionBuilder::getAllIndexTrees(std::vector<SortedRun>* results) {
+  BuildTreeLevelMap();
+  CalculateSortedRuns(vstorage_, results);
 }
 
 bool GearCompactionPicker::NeedsCompaction(
@@ -265,16 +291,13 @@ Compaction* GearCompactionBuilder::PickCompaction() {
     }
   }
 
-  // still, there is no compaction. Then we check if there is no compaction
-  // But the delete compaction in gear compaction may be a little bit different
-  // deleted it for now.
-  //  if (c == nullptr) {
-  //    if ((c = PickDeleteTriggeredCompaction()) != nullptr) {
-  //      ROCKS_LOG_BUFFER(log_buffer_, "[%s] Gear: delete triggered
-  //      compaction\n",
-  //                       cf_name_.c_str());
-  //    }
-  //  }
+  //   still, there is no compaction. Then we check if there is no compaction
+  //   But the delete compaction in gear compaction may be a little bit
+  //   different deleted it for now.
+  if (c == nullptr) {
+    if ((c = PickDeleteTriggeredCompaction()) != nullptr) {
+    }
+  }
   // Still no compaction founded, return
   if (c == nullptr) {
     return nullptr;
@@ -465,10 +488,12 @@ Compaction* GearCompactionBuilder::PickCompactionToOldest(
   assert(start_index < sorted_runs_.size());
 
   int start_level = sorted_runs_[start_index].level;
-
+  if (compaction_reason == CompactionReason::kGearCompactionAllInOne) {
+    assert(start_level == ioptions_.num_levels - 1);
+  }
   std::vector<CompactionInputFiles> inputs(vstorage_->num_levels());
   for (size_t i = 0; i < inputs.size(); i++) {
-    inputs[i].level = i;  // here we should not modify the level.
+    inputs[i].level = i + start_level;  // here we should not modify the level.
   }
 
   for (size_t loop = start_index; loop < sorted_runs_.size(); loop++) {
@@ -477,8 +502,9 @@ Compaction* GearCompactionBuilder::PickCompactionToOldest(
       FileMetaData* f = picking_sr.file;
       inputs[0].files.push_back(f);
     } else {
-      for (auto* f : picking_sr.fd_list) {
-        inputs[picking_sr.level].files.push_back(f);
+      auto& files = inputs[picking_sr.level - start_level].files;
+      for (auto* f : vstorage_->LevelFiles(picking_sr.level)) {
+        files.push_back(f);
       }
     }
 
@@ -556,8 +582,9 @@ Compaction* GearCompactionBuilder::PickCompactionForLevel(int level) {
     }
     char file_num_buf[256];
     picking_sr.DumpSizeInfo(file_num_buf, sizeof(file_num_buf), loop);
-//    ROCKS_LOG_BUFFER(log_buffer_, "[%s] Gear : %s picking %s", cf_name_.c_str(),
-//                     "merge upper level files", file_num_buf);
+    //    ROCKS_LOG_BUFFER(log_buffer_, "[%s] Gear : %s picking %s",
+    //    cf_name_.c_str(),
+    //                     "merge upper level files", file_num_buf);
     loop++;
   }
   int start_level = level;
@@ -620,202 +647,6 @@ Compaction* GearCompactionBuilder::PickCompactionForLevel(int level) {
       {}, false, score_, false, CompactionReason::kGearCollectTiered);
 }
 
-Compaction* GearCompactionBuilder::PickCompactionToReduceSortedRuns(
-    unsigned int ratio, unsigned int max_number_of_files_to_compact) {
-  unsigned int min_merge_width =
-      mutable_cf_options_.compaction_options_universal.min_merge_width;
-  unsigned int max_merge_width =
-      mutable_cf_options_.compaction_options_universal.max_merge_width;
-
-  const IndexTree* sr = nullptr;
-  bool done = false;
-  size_t start_index = 0;
-  unsigned int candidate_count = 0;
-
-  unsigned int max_files_to_compact =
-      std::min(max_merge_width, max_number_of_files_to_compact);
-  min_merge_width = std::max(min_merge_width, 2U);
-
-  // Caller checks the size before executing this function. This invariant is
-  // important because otherwise we may have a possible integer underflow when
-  // dealing with unsigned types.
-  assert(!sorted_runs_.empty());
-
-  // Considers a candidate file only if it is smaller than the
-  // total size accumulated so far.
-  for (size_t loop = 0; loop < sorted_runs_.size(); loop++) {
-    candidate_count = 0;
-
-    // Skip files that are already being compacted
-    for (sr = nullptr; loop < sorted_runs_.size(); loop++) {
-      sr = &sorted_runs_[loop];
-
-      if (!sr->being_compacted) {
-        candidate_count = 1;
-        break;
-      }
-      char file_num_buf[kFormatFileNumberBufSize];
-      sr->Dump(file_num_buf, sizeof(file_num_buf));
-      ROCKS_LOG_BUFFER(log_buffer_,
-                       "[%s] Gear: %s"
-                       "[%d] being compacted, skipping",
-                       cf_name_.c_str(), file_num_buf, loop);
-
-      sr = nullptr;
-    }
-
-    // This file is not being compacted. Consider it as the
-    // first candidate to be compacted.
-    uint64_t candidate_size = sr != nullptr ? sr->compensated_file_size : 0;
-    if (sr != nullptr) {
-      char file_num_buf[kFormatFileNumberBufSize];
-      sr->Dump(file_num_buf, sizeof(file_num_buf), true);
-      ROCKS_LOG_BUFFER(log_buffer_,
-                       "[%s] Universal: Possible candidate %s[%d].",
-                       cf_name_.c_str(), file_num_buf, loop);
-    }
-
-    // Check if the succeeding files need compaction.
-    for (size_t i = loop + 1;
-         candidate_count < max_files_to_compact && i < sorted_runs_.size();
-         i++) {
-      const IndexTree* succeeding_sr = &sorted_runs_[i];
-      if (succeeding_sr->being_compacted) {
-        break;
-      }
-      // Pick files if the total/last candidate file size (increased by the
-      // specified ratio) is still larger than the next candidate file.
-      // candidate_size is the total size of files picked so far with the
-      // default kCompactionStopStyleTotalSize; with
-      // kCompactionStopStyleSimilarSize, it's simply the size of the last
-      // picked file.
-      double sz = candidate_size * (100.0 + ratio) / 100.0;
-      if (sz < static_cast<double>(succeeding_sr->size)) {
-        break;
-      }
-      if (mutable_cf_options_.compaction_options_universal.stop_style ==
-          kCompactionStopStyleSimilarSize) {
-        // Similar-size stopping rule: also check the last picked file isn't
-        // far larger than the next candidate file.
-        sz = (succeeding_sr->size * (100.0 + ratio)) / 100.0;
-        if (sz < static_cast<double>(candidate_size)) {
-          // If the small file we've encountered begins a run of similar-size
-          // files, we'll pick them up on a future iteration of the outer
-          // loop. If it's some lonely straggler, it'll eventually get picked
-          // by the last-resort read amp strategy which disregards size ratios.
-          break;
-        }
-        candidate_size = succeeding_sr->compensated_file_size;
-      } else {  // default kCompactionStopStyleTotalSize
-        candidate_size += succeeding_sr->compensated_file_size;
-      }
-      candidate_count++;
-    }
-
-    // Found a series of consecutive files that need compaction.
-    if (candidate_count >= (unsigned int)min_merge_width) {
-      start_index = loop;
-      done = true;
-      break;
-    } else {
-      for (size_t i = loop;
-           i < loop + candidate_count && i < sorted_runs_.size(); i++) {
-        const IndexTree* skipping_sr = &sorted_runs_[i];
-        char file_num_buf[256];
-        skipping_sr->DumpSizeInfo(file_num_buf, sizeof(file_num_buf), loop);
-        ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: Skipping %s",
-                         cf_name_.c_str(), file_num_buf);
-      }
-    }
-  }
-  if (!done || candidate_count <= 1) {
-    return nullptr;
-  }
-  size_t first_index_after = start_index + candidate_count;
-  // Compression is enabled if files compacted earlier already reached
-  // size ratio of compression.
-  bool enable_compression = true;
-  int ratio_to_compress =
-      mutable_cf_options_.compaction_options_universal.compression_size_percent;
-  if (ratio_to_compress >= 0) {
-    uint64_t total_size = 0;
-    for (auto& sorted_run : sorted_runs_) {
-      total_size += sorted_run.compensated_file_size;
-    }
-
-    uint64_t older_file_size = 0;
-    for (size_t i = sorted_runs_.size() - 1; i >= first_index_after; i--) {
-      older_file_size += sorted_runs_[i].size;
-      if (older_file_size * 100L >= total_size * (long)ratio_to_compress) {
-        enable_compression = false;
-        break;
-      }
-    }
-  }
-
-  uint64_t estimated_total_size = 0;
-  for (unsigned int i = 0; i < first_index_after; i++) {
-    estimated_total_size += sorted_runs_[i].size;
-  }
-  int start_level = sorted_runs_[start_index].level;
-  int output_level;
-  if (first_index_after == sorted_runs_.size()) {
-    output_level = vstorage_->num_levels() - 1;
-  } else if (sorted_runs_[first_index_after].level == 0) {
-    output_level = 0;
-  } else {
-    output_level = sorted_runs_[first_index_after].level - 1;
-  }
-
-  uint32_t path_id = GetPathId(ioptions_, mutable_cf_options_, output_level);
-  // last level is reserved for the files ingested behind
-  if (ioptions_.allow_ingest_behind &&
-      (output_level == vstorage_->num_levels() - 1)) {
-    assert(output_level > 1);
-    output_level--;
-  }
-
-  std::vector<CompactionInputFiles> inputs(vstorage_->num_levels());
-  for (size_t i = 0; i < inputs.size(); ++i) {
-    inputs[i].level = start_level + static_cast<int>(i);
-  }
-  for (size_t i = start_index; i < first_index_after; i++) {
-    auto& picking_sr = sorted_runs_[i];
-    if (picking_sr.level == 0) {
-      FileMetaData* picking_file = picking_sr.file;
-      inputs[0].files.push_back(picking_file);
-    } else {
-      auto& files = inputs[picking_sr.level - start_level].files;
-      for (auto* f : vstorage_->LevelFiles(picking_sr.level)) {
-        files.push_back(f);
-      }
-    }
-    char file_num_buf[256];
-    picking_sr.DumpSizeInfo(file_num_buf, sizeof(file_num_buf), i);
-    ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: Picking %s",
-                     cf_name_.c_str(), file_num_buf);
-  }
-
-  CompactionReason compaction_reason;
-  if (max_number_of_files_to_compact == UINT_MAX) {
-    compaction_reason = CompactionReason::kUniversalSizeRatio;
-  } else {
-    compaction_reason = CompactionReason::kUniversalSortedRunNum;
-  }
-  return new Compaction(
-      vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
-      output_level,
-      MaxFileSizeForLevel(mutable_cf_options_, output_level,
-                          kCompactionStyleUniversal),
-      LLONG_MAX, path_id,
-      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_, start_level,
-                         1, enable_compression),
-      GetCompressionOptions(mutable_cf_options_, vstorage_, start_level,
-                            enable_compression),
-      /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
-      score_, false /* deletion_compaction */, compaction_reason);
-}
-
 Compaction* GearCompactionBuilder::PickCompactionLastLevel() {
   ROCKS_LOG_BUFFER(log_buffer_, "[%s] Gear: Last Level Compaction",
                    cf_name_.c_str());
@@ -826,9 +657,13 @@ Compaction* GearCompactionBuilder::PickCompactionLastLevel() {
     // any of the L2 files should not being compacted.
     return nullptr;
   }
-
+  int start_index = sorted_runs_.size() - 1;
   Compaction* c = PickCompactionToOldest(
-      sorted_runs_.size() - 2, CompactionReason::kGearCompactionAllInOne);
+      start_index, CompactionReason::kGearCompactionAllInOne);
+
+  // fuck this shit, the Pick Compaction To Oldest has bug in fillseq
+  //  Compaction* c = PickCompactionToOldest(
+  //      sorted_runs_.size() - 2, CompactionReason::kGearCompactionAllInOne);
 
   TEST_SYNC_POINT_CALLBACK(
       "UniversalCompactionPicker::PickCompactionLastLevel:Return", c);

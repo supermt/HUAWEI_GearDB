@@ -11,6 +11,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+
 #include <atomic>
 #include <list>
 #include <map>
@@ -21,15 +22,14 @@
 
 #include "db/dbformat.h"
 #include "index_builder.h"
+#include "memory/memory_allocator.h"
 #include "port/lang.h"
-
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/table.h"
-
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_filter_block.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -41,8 +41,6 @@
 #include "table/block_based/partitioned_filter_block.h"
 #include "table/format.h"
 #include "table/table_builder.h"
-
-#include "memory/memory_allocator.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -1549,9 +1547,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
   std::vector<size_t> compression_dict_sample_lens;
   if (!r->data_block_and_keys_buffers.empty()) {
     while (compression_dict_samples.size() < kSampleBytes) {
-      size_t rand_idx =
-          static_cast<size_t>(
-              generator.Uniform(r->data_block_and_keys_buffers.size()));
+      size_t rand_idx = static_cast<size_t>(
+          generator.Uniform(r->data_block_and_keys_buffers.size()));
       size_t copy_len =
           std::min(kSampleBytes - compression_dict_samples.size(),
                    r->data_block_and_keys_buffers[rand_idx].first.size());

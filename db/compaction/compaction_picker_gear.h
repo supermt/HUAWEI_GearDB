@@ -69,6 +69,8 @@ struct IndexTree {
   std::vector<FileMetaData*> fd_list;
 };
 
+typedef IndexTree SortedRun;
+
 class GearCompactionPicker : public CompactionPicker {
  public:
   GearCompactionPicker(const ImmutableCFOptions& ioptions,
@@ -202,8 +204,8 @@ class GearCompactionBuilder {
                                      CompactionReason compaction_reason);
   Compaction* PickDeleteTriggeredCompaction();
   bool IsInputFilesNonOverlapping(Compaction* c);
-  Compaction* PickCompactionToReduceSortedRuns(
-      unsigned int ratio, unsigned int max_number_of_files_to_compact);
+  //  Compaction* PickCompactionToReduceSortedRuns(
+  //      unsigned int ratio, unsigned int max_number_of_files_to_compact);
   Compaction* PickCompactionForLevel(int level);
 
   void getAllIndexTrees(std::vector<IndexTree>* results);
@@ -221,7 +223,7 @@ class GearCompactionBuilder {
            pow(mutable_cf_options_.level0_file_num_compaction_trigger,
                vstorage_->num_levels() - 1);
   }
-  void CalculateSortedRuns();
+  void BuildTreeLevelMap();
 };
 
 struct InputFileInfo {
