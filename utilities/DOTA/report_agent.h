@@ -65,8 +65,12 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+typedef std::vector<double> LSM_STATE;
 class ReporterAgent;
 struct ChangePoint;
+
+class ReporterWithMoreDetails;
+class ReporterAgentWithTuning;
 
 struct ChangePoint {
   std::string opt;
@@ -161,6 +165,228 @@ class ReporterAgent {
       }
       last_report_ = total_ops_done_snapshot;
     }
+  }
+};
+
+class ReporterAgentWithTuning : public ReporterAgent {
+ private:
+  std::vector<ChangePoint> tuning_points;
+  DBImpl* running_db_;
+  std::string DOTAHeader() const {
+    return "secs_elapsed,interval_qps,batch_size";
+  }
+
+ protected:
+ public:
+  ReporterAgentWithTuning(DBImpl* running_db, Env* env,
+                          const std::string& fname,
+                          uint64_t report_interval_secs)
+      : ReporterAgent(env, fname, report_interval_secs, DOTAHeader()) {
+    tuning_points = std::vector<ChangePoint>();
+    tuning_points.clear();
+
+    std::cout << "using reporter agent with change points." << std::endl;
+    if (running_db == nullptr) {
+      std::cout << "Missing parameter db_ to apply changes" << std::endl;
+      abort();
+    } else {
+      running_db_ = running_db;
+    }
+  }
+
+  void ApplyChangePoint(ChangePoint point) {
+    //    //    db_.db->GetDBOptions();
+    //    FLAGS_env->SleepForMicroseconds(point->change_timing * 1000000l);
+    //    sleep(point->change_timing);
+    std::unordered_map<std::string, std::string> new_options = {
+        {point.opt, point.value}};
+    Status s = running_db_->SetOptions(new_options);
+    auto is_ok = s.ok() ? "suc" : "failed";
+    std::cout << "Set " << point.opt + "=" + point.value + " " + is_ok
+              << " after " << point.change_timing << " seconds running"
+              << std::endl;
+  }
+  void InsertNewTuningPoints(ChangePoint point) {
+    tuning_points.push_back(point);
+  }
+  const std::string memtable_size = "write_buffer_size";
+  const std::string table_size = "target_file_size_base";
+  const static unsigned long history_lsm_shape = 10;
+  std::deque<LSM_STATE> shape_list;
+  const size_t default_memtable_size = 64 << 20;
+
+  const float threashold = 0.5;
+
+  bool reach_lsm_double_line(size_t sec_elpased, Options* opt) {
+    int counter[history_lsm_shape] = {0};
+    for (LSM_STATE shape : shape_list) {
+      int max_level = 0;
+      int max_score = -1;
+      unsigned long len = shape.size();
+      for (unsigned long i = 0; i < len; i++) {
+        if (shape[i] > max_score) {
+          max_score = shape[i];
+          max_level = i;
+          if (shape[i] == 0) break;  // there is no file in this level
+        }
+      }
+      //      std::cout << "max level is " << max_level << std::endl;
+      counter[max_level]++;
+    }
+    ChangePoint point;
+    for (unsigned long i = 0; i < history_lsm_shape; i++) {
+      if (counter[i] > threashold * history_lsm_shape) {
+        //        std::cout << "Apply changes due to crowded level  " << i <<
+        //        std::endl;
+        // for in each detect window, it suppose to happen a lot of single level
+        // compaction, but we need to start with level 2, since level 1 is much
+        // to common
+        if (i <= 1) {
+          if (opt->write_buffer_size > 4 * default_memtable_size) {
+            point.change_timing = sec_elpased + history_lsm_shape / 10;
+            point.opt = memtable_size;
+            point.value = ToString(default_memtable_size);
+            tuning_points.push_back(point);
+            point.opt = table_size;
+            tuning_points.push_back(point);
+            report_file_->Append("," + point.opt + "," + point.value);
+          }
+        } else if (opt->write_buffer_size <= default_memtable_size * 8) {
+          point.change_timing = sec_elpased + history_lsm_shape / 10;
+          point.opt = memtable_size;
+          point.value = ToString(opt->write_buffer_size * 2);
+          tuning_points.push_back(point);
+          point.opt = table_size;
+          tuning_points.push_back(point);
+          report_file_->Append("," + point.opt + "," + point.value);
+        }
+
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void Detect(int sec_elpased) {
+    //    auto qps = total_ops_done_.load() - last_report_;
+    //    int db_size = 64;
+    //    auto slow_down_trigger = opt.level0_slowdown_writes_trigger;
+    DBImpl* dbfull = running_db_;
+    VersionSet* test = dbfull->GetVersionSet();
+
+    Options opt = running_db_->GetOptions();
+    auto cfd = test->GetColumnFamilySet()->GetDefault();
+    auto vstorage = cfd->current()->storage_info();
+    LSM_STATE temp;
+    for (int i = 0; i < vstorage->num_levels(); i++) {
+      double score = vstorage->CompactionScore(i);
+      temp.push_back(score);
+    }
+    if (shape_list.size() > history_lsm_shape) {
+      shape_list.pop_front();
+    }
+    shape_list.push_back(temp);
+    //    std::cout << "shape list pushed in with length " << temp.size()
+    //              << std::endl;
+    reach_lsm_double_line(sec_elpased, &opt);
+    //    LSM_STATE temp;
+    //
+    //    for (int level = 0; level < vstorage->num_levels(); ++level) {
+    //      temp.push_back(vstorage->NumLevelFiles(level));
+    //    }
+    //
+    //    if (shape_list.size() > history_lsm_shape) {
+    //      shape_list.pop_front();
+    //    }
+    //    shape_list.push_back(temp);
+    //    if (reach_lsm_double_line()) {
+    //    }
+
+    ChangePoint testpoint;
+
+    //    uint64_t size = version;
+  }
+
+  void PopChangePoints(int secs_elapsed) {
+    for (auto it = tuning_points.begin(); it != tuning_points.end(); it++) {
+      if (it->change_timing <= secs_elapsed) {
+        if (running_db_ != nullptr) {
+          ApplyChangePoint(*it);
+        }
+        tuning_points.erase(it--);
+      }
+    }
+  }
+
+  void DetectAndTuning(int secs_elapsed) {
+    Detect(secs_elapsed);
+    if (tuning_points.empty()) {
+      return;
+    }
+    PopChangePoints(secs_elapsed);
+  }
+};  // end ReporterWithTuning
+class ReporterWithMoreDetails : public ReporterAgent {
+ private:
+  DBImpl* db_ptr;
+  std::string detailed_header() {
+    return ReporterAgent::Header() + ",num_compaction,num_flushes,lsm_shape";
+  }
+
+ public:
+  ReporterWithMoreDetails(DBImpl* running_db, Env* env,
+                          const std::string& fname,
+                          uint64_t report_interval_secs)
+      : ReporterAgent(env, fname, report_interval_secs, detailed_header()) {
+    if (running_db == nullptr) {
+      std::cout << "Missing parameter db_ to record more details" << std::endl;
+      abort();
+
+    } else {
+      db_ptr = reinterpret_cast<DBImpl*>(running_db);
+    }
+  }
+
+  void RecordCompactionQueue() {
+    //    auto compaction_queue_ptr = db_ptr->getCompactionQueue();
+    int num_running_compactions = db_ptr->num_running_compactions();
+    int num_running_flushes = db_ptr->num_running_flushes();
+
+    //    std::stringstream compaction_stat_list_ss;
+    //    std::string compaction_stat;
+    //    compaction_stat_list_ss << "[";
+    //    for (ColumnFamilyData* cfd : *compaction_queue_ptr) {
+    //      cfd->internal_stats();
+    //    }
+    report_file_->Append(ToString(num_running_compactions) + ",");
+    report_file_->Append(ToString(num_running_flushes) + ",");
+    //    compaction_stat_list_ss >> compaction_stat;
+    //    compaction_stat.replace(compaction_stat.end() - 1,
+    //    compaction_stat.end(),
+    //                            "]");
+    //    report_file_->Append(compaction_stat);
+  }
+  void RecordLSMShape() {
+    auto vstorage = db_ptr->GetVersionSet()
+                        ->GetColumnFamilySet()
+                        ->GetDefault()
+                        ->current()
+                        ->storage_info();
+
+    report_file_->Append("[");
+    int i = 0;
+    for (i = 0; i < vstorage->num_levels() - 1; i++) {
+      int file_count = vstorage->NumLevelFiles(i);
+      report_file_->Append(ToString(file_count) + ",");
+    }
+    report_file_->Append(ToString(vstorage->NumLevelFiles(i)) + "]");
+  }
+
+  void DetectAndTuning(int secs_elapsed) {
+    report_file_->Append(",");
+    RecordCompactionQueue();
+    RecordLSMShape();
+    secs_elapsed++;
   }
 };
 
