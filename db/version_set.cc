@@ -2643,7 +2643,15 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
             f2->largest.DebugString(true).c_str());
       LogFlush(info_log);
     }
-    assert(false);
+    if (this->compaction_style_ == kCompactionStyleGear) {
+      // using the gear compaction, which allows the overlapping files.
+      Warn(info_log,
+           "Using Gear compaction, this compaction style allows overlapping");
+      LogFlush(info_log);
+      assert(true);
+    } else {
+      assert(false);
+    }
   }
 #else
   (void)info_log;
@@ -2656,7 +2664,6 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
   assert(file_locations_.find(file_number) == file_locations_.end());
   file_locations_.emplace(file_number,
                           FileLocation(level, level_files->size() - 1));
-
 }
 
 void VersionStorageInfo::AddBlobFile(
