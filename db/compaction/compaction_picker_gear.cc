@@ -83,9 +83,9 @@ void GearCompactionBuilder::BuildTreeLevelMap() {
         (int)pow(mutable_cf_options_.level0_file_num_compaction_trigger, level);
     temp.clear();
 
-    uint64_t total_compensated_size = 0U;
-    uint64_t total_size = 0U;
-    bool being_compacted = false;
+//    uint64_t total_compensated_size = 0U;
+//    uint64_t total_size = 0U;
+//    bool being_compacted = false;
     IndexTree current_node(level, nullptr, 0, 0, false);
     for (FileMetaData* f : vstorage_->LevelFiles(level)) {
       if (current_node.AddFileToFdList(f, file_num_limit)) {

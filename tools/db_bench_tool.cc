@@ -4563,7 +4563,7 @@ class Benchmark {
       s0 = FLAGS_huawei_tuner_base_speed;
       thread->shared->write_rate_limiter.reset(NewGenericRateLimiter(s0));
     }
-    uint64_t before_write = FLAGS_env->NowMicros();
+//    uint64_t before_write = FLAGS_env->NowMicros();
     std::vector<uint64_t> l2_compaction_moment = {};
     int last_l2_compaction = 0;
     // end jinghuan
@@ -4704,8 +4704,8 @@ class Benchmark {
         // no need to change the rate each compaction.
         if (usecs_since_last >
             (FLAGS_sine_write_rate_interval_milliseconds * uint64_t{1000})) {
-          double usecs_since_start =
-              static_cast<double>(now - thread->stats.GetStart());
+//          double usecs_since_start =
+//              static_cast<double>(now - thread->stats.GetStart());
           thread->stats.ResetSineInterval();
           auto compaction_queue = db_ptr->getCompactionQueue();
           if (!compaction_queue->empty()) {
