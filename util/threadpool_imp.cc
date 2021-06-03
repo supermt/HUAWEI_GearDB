@@ -120,6 +120,8 @@ struct ThreadPoolImpl::Impl {
   BGQueue queue_;
 
   std::mutex mu_;
+  std::vector<std::pair<size_t, uint64_t>> thread_waiting_time;
+  std::vector<std::pair<std::string, uint64_t>> thread_creating_time;
   std::condition_variable bgsignal_;
   std::vector<port::Thread> bgthreads_;
 };
@@ -138,7 +140,34 @@ inline ThreadPoolImpl::Impl::Impl()
       bgsignal_(),
       bgthreads_() {}
 
-inline ThreadPoolImpl::Impl::~Impl() { assert(bgthreads_.size() == 0U); }
+inline ThreadPoolImpl::Impl::~Impl() {
+  if (priority_ == Env::LOW) {
+    std::cout << "Thread states for Compaction" << std::endl;
+    std::cout << "timestamp of each thread creating" << std::endl;
+    for (auto pair : thread_creating_time) {
+      std::cout << "" << pair.first << " : " << pair.second << std::endl;
+    }
+    std::cout << "micro seconds waiting for next mission" << std::endl;
+
+    for (auto pair : thread_waiting_time) {
+      std::cout << pair.first << " : " << pair.second << std::endl;
+    }
+  } else if (priority_ == Env::HIGH) {
+    env_->SleepForMicroseconds(1000);
+    std::cout << "Thread states for Flush" << std::endl;
+    std::cout << "timestamp of each thread creating" << std::endl;
+    for (auto pair : thread_creating_time) {
+      std::cout << "" << pair.first << " : " << pair.second << std::endl;
+    }
+    std::cout << "micro seconds waiting for next mission" << std::endl;
+
+    for (auto pair : thread_waiting_time) {
+      std::cout << pair.first << " : " << pair.second << std::endl;
+    }
+  }
+
+  assert(bgthreads_.size() == 0U);
+}
 
 void ThreadPoolImpl::Impl::JoinThreads(bool wait_for_jobs_to_complete) {
   std::unique_lock<std::mutex> lock(mu_);
@@ -182,10 +211,13 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
     // Wait until there is an item that is ready to run
     std::unique_lock<std::mutex> lock(mu_);
     // Stop waiting if the thread needs to do work or needs to terminate.
+    uint64_t before_waiting = env_->NowMicros();
     while (!exit_all_threads_ && !IsLastExcessiveThread(thread_id) &&
            (queue_.empty() || IsExcessiveThread(thread_id))) {
       bgsignal_.wait(lock);
     }
+    uint64_t waiting_time = env_->NowMicros() - before_waiting;
+    thread_waiting_time.emplace_back(thread_id, waiting_time);
 
     if (exit_all_threads_) {  // mechanism to let BG threads exit safely
 
@@ -337,7 +369,6 @@ void ThreadPoolImpl::Impl::StartBGThreads() {
   while ((int)bgthreads_.size() < total_threads_limit_) {
     port::Thread p_t(&BGThreadWrapper,
                      new BGThreadMetadata(this, bgthreads_.size()));
-
 // Set the thread name to aid debugging
 #if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
 #if __GLIBC_PREREQ(2, 12)
@@ -349,9 +380,12 @@ void ThreadPoolImpl::Impl::StartBGThreads() {
       thread_name_stream << static_cast<char>(tolower(c));
     }
     thread_name_stream << bgthreads_.size();
+    thread_creating_time.emplace_back(thread_name_stream.str(),
+                                      env_->NowMicros());
     pthread_setname_np(th_handle, thread_name_stream.str().c_str());
 #endif
 #endif
+
     bgthreads_.push_back(std::move(p_t));
   }
 }
