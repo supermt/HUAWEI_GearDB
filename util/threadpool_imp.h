@@ -93,6 +93,9 @@ class ThreadPoolImpl : public ThreadPool {
 
   struct Impl;
 
+  std::vector<std::pair<size_t, uint64_t>>* GetThreadWaitingTime();
+  std::vector<std::pair<std::string,uint64_t>>* GetThreadCreatingTime();
+  std::string GetThreadTimingString();
  private:
   // Current public virtual interface does not provide usable
   // functionality and thus can not be used internally to

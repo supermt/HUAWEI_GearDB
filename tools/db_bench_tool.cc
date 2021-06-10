@@ -36,6 +36,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
+#include "env/env_posix.cc"
 #include "hdfs/env_hdfs.h"
 #include "monitoring/histogram.h"
 #include "monitoring/statistics.h"
@@ -1386,6 +1387,8 @@ DEFINE_int32(skip_list_lookahead, 0,
 DEFINE_bool(report_file_operations, false,
             "if report number of file "
             "operations");
+DEFINE_bool(report_thread_idle, false, "report the thread pool waiting time");
+
 DEFINE_int32(readahead_size, 0, "Iterator readahead size");
 
 static const bool FLAGS_soft_rate_limit_dummy __attribute__((__unused__)) =
@@ -2149,7 +2152,11 @@ class Stats {
                 it->second->ToString().c_str());
       }
     }
-
+    if (FLAGS_report_thread_idle) {
+      PosixEnv* posix_env = static_cast<PosixEnv*>(FLAGS_env);
+      std::string result_string = posix_env->GetThreadPoolTimeStateString();
+      std::cout << result_string;
+    }
     if (FLAGS_report_file_operations) {
       ReportFileOpEnv* env = static_cast<ReportFileOpEnv*>(FLAGS_env);
       ReportFileOpCounters* counters = env->counters();
@@ -4563,7 +4570,7 @@ class Benchmark {
       s0 = FLAGS_huawei_tuner_base_speed;
       thread->shared->write_rate_limiter.reset(NewGenericRateLimiter(s0));
     }
-//    uint64_t before_write = FLAGS_env->NowMicros();
+    //    uint64_t before_write = FLAGS_env->NowMicros();
     std::vector<uint64_t> l2_compaction_moment = {};
     int last_l2_compaction = 0;
     // end jinghuan
@@ -4704,8 +4711,8 @@ class Benchmark {
         // no need to change the rate each compaction.
         if (usecs_since_last >
             (FLAGS_sine_write_rate_interval_milliseconds * uint64_t{1000})) {
-//          double usecs_since_start =
-//              static_cast<double>(now - thread->stats.GetStart());
+          //          double usecs_since_start =
+          //              static_cast<double>(now - thread->stats.GetStart());
           thread->stats.ResetSineInterval();
           auto compaction_queue = db_ptr->getCompactionQueue();
           if (!compaction_queue->empty()) {

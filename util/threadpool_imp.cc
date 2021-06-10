@@ -50,7 +50,22 @@ struct ThreadPoolImpl::Impl {
 
   void SetBackgroundThreadsInternal(int num, bool allow_reduce);
   int GetBackgroundThreads();
+  std::string GetThreadPoolTiming() {
+    std::stringstream ss;
+    ss << "timestamp (micros) of each thread creating\n";
 
+    for (auto pair : thread_creating_time) {
+      ss << "" << pair.first << " : " << pair.second << "\n";
+    }
+    ss << "micro seconds waiting for next mission"
+       << "\n";
+
+    for (auto pair : thread_waiting_time) {
+      ss << pair.first << " : " << pair.second << "\n";
+    }
+    ss << "\n";
+    return ss.str();
+  }
   unsigned int GetQueueLen() const {
     return queue_len_.load(std::memory_order_relaxed);
   }
@@ -96,6 +111,9 @@ struct ThreadPoolImpl::Impl {
   // Set the thread priority.
   void SetThreadPriority(Env::Priority priority) { priority_ = priority; }
 
+  std::vector<std::pair<size_t, uint64_t>> thread_waiting_time;
+  std::vector<std::pair<std::string, uint64_t>> thread_creating_time;
+
  private:
   static void BGThreadWrapper(void* arg);
 
@@ -120,11 +138,21 @@ struct ThreadPoolImpl::Impl {
   BGQueue queue_;
 
   std::mutex mu_;
-  std::vector<std::pair<size_t, uint64_t>> thread_waiting_time;
-  std::vector<std::pair<std::string, uint64_t>> thread_creating_time;
   std::condition_variable bgsignal_;
   std::vector<port::Thread> bgthreads_;
 };
+
+std::vector<std::pair<size_t, uint64_t>>*
+ThreadPoolImpl::GetThreadWaitingTime() {
+  return &impl_->thread_waiting_time;
+}
+std::vector<std::pair<std::string, uint64_t>>*
+ThreadPoolImpl::GetThreadCreatingTime() {
+  return &impl_->thread_creating_time;
+}
+std::string ThreadPoolImpl::GetThreadTimingString() {
+  return impl_->GetThreadPoolTiming();
+}
 
 inline ThreadPoolImpl::Impl::Impl()
     : low_io_priority_(false),
@@ -140,34 +168,7 @@ inline ThreadPoolImpl::Impl::Impl()
       bgsignal_(),
       bgthreads_() {}
 
-inline ThreadPoolImpl::Impl::~Impl() {
-  if (priority_ == Env::LOW) {
-    std::cout << "Thread states for Compaction" << std::endl;
-    std::cout << "timestamp of each thread creating" << std::endl;
-    for (auto pair : thread_creating_time) {
-      std::cout << "" << pair.first << " : " << pair.second << std::endl;
-    }
-    std::cout << "micro seconds waiting for next mission" << std::endl;
-
-    for (auto pair : thread_waiting_time) {
-      std::cout << pair.first << " : " << pair.second << std::endl;
-    }
-  } else if (priority_ == Env::HIGH) {
-    env_->SleepForMicroseconds(1000);
-    std::cout << "Thread states for Flush" << std::endl;
-    std::cout << "timestamp of each thread creating" << std::endl;
-    for (auto pair : thread_creating_time) {
-      std::cout << "" << pair.first << " : " << pair.second << std::endl;
-    }
-    std::cout << "micro seconds waiting for next mission" << std::endl;
-
-    for (auto pair : thread_waiting_time) {
-      std::cout << pair.first << " : " << pair.second << std::endl;
-    }
-  }
-
-  assert(bgthreads_.size() == 0U);
-}
+inline ThreadPoolImpl::Impl::~Impl() { assert(bgthreads_.size() == 0U); }
 
 void ThreadPoolImpl::Impl::JoinThreads(bool wait_for_jobs_to_complete) {
   std::unique_lock<std::mutex> lock(mu_);
