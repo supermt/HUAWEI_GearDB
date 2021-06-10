@@ -383,7 +383,7 @@ class PosixEnv : public CompositeEnvWrapper {
     }
     return results;
   }
-  std::string GetThreadPoolTimeStateString() {
+  std::string GetThreadPoolTimeStateString() override {
     std::stringstream ss;
     for (uint64_t i = 0; i < thread_pools_.size(); i++) {
       ss << "Thread States for Pool Priority: "

@@ -519,6 +519,9 @@ class Env {
   // files. Default implementation returns the copy of the same object.
   virtual EnvOptions OptimizeForManifestWrite(
       const EnvOptions& env_options) const;
+  virtual std::string GetThreadPoolTimeStateString() {
+    return "haven't been implemented";
+  }
 
   // OptimizeForCompactionTableWrite will create a new EnvOptions object that is
   // a copy of the EnvOptions in the parameters, but is optimized for writing

@@ -36,7 +36,6 @@
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
-#include "env/env_posix.cc"
 #include "hdfs/env_hdfs.h"
 #include "monitoring/histogram.h"
 #include "monitoring/statistics.h"
@@ -2153,8 +2152,7 @@ class Stats {
       }
     }
     if (FLAGS_report_thread_idle) {
-      PosixEnv* posix_env = static_cast<PosixEnv*>(FLAGS_env);
-      std::string result_string = posix_env->GetThreadPoolTimeStateString();
+      std::string result_string = FLAGS_env->GetThreadPoolTimeStateString();
       std::cout << result_string;
     }
     if (FLAGS_report_file_operations) {
