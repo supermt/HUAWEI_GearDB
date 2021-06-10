@@ -833,43 +833,6 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   }
   stream.EndArray();
 
-  // add by jinghuan
-  // record the data with compaction ranges
-  //
-  //  stream << "compaction_range";
-  //  stream.StartObject();
-  //  for (size_t i = 0; i < compact_->compaction->num_input_levels(); ++i) {
-  //    stream << ("files_L" + ToString(compact_->compaction->level(i)));
-  //    stream.StartObject();
-  //    for (auto f : *compact_->compaction->inputs(i)) {
-  //      stream << std::to_string(f->fd.GetNumber());
-  ////      stream << f->fd.GetNumber();
-  //      stream.StartObject();
-  //      stream << "smallest_key";
-  //      stream << f->smallest.DebugString(true);
-  //      stream << "largest_key";
-  //      stream << f->largest.DebugString(true);
-  //      stream.EndObject();
-  //    }
-  //    stream.EndObject();
-  //  }
-  //  stream.EndObject();
-
-  //  stream << "compaction_input_range";
-  //  stream.StartArray();
-  //
-  //  for (auto compaction_file : *(compact_->compaction->inputs())){
-  //    // list all the start range and end range of inputs
-  //    stream.StartArray();
-  //    for (FileMetaData *fd_ptr : compaction_file.files){
-  //      stream << fd_ptr->smallest.DebugString(true);
-  //      stream << fd_ptr->largest.DebugString(true);
-  //    }
-  //    stream.EndArray();
-  //  }
-  //
-  //  stream.EndArray();
-
   CleanupCompaction();
   return status;
 }
