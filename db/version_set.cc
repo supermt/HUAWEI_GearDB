@@ -1562,7 +1562,7 @@ void Version::AddIterators(const ReadOptions& read_options,
                          range_del_agg, allow_unprepared_value);
   }
 }
-
+uint64_t Version::GetCurrentTime() { return this->env_->NowMicros(); }
 void Version::AddIteratorsForLevel(const ReadOptions& read_options,
                                    const FileOptions& soptions,
                                    MergeIteratorBuilder* merge_iter_builder,

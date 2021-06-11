@@ -7,11 +7,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db/compaction/compaction.h"
+
 #include <cinttypes>
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/compaction/compaction.h"
 #include "rocksdb/compaction_filter.h"
 #include "test_util/sync_point.h"
 #include "util/string_util.h"
@@ -279,6 +280,11 @@ Compaction::~Compaction() {
   }
 }
 
+uint64_t Compaction::GetCurrentTime() {
+  assert(input_version_!= nullptr);
+  return input_version()->GetCurrentTime();
+}
+
 bool Compaction::InputCompressionMatchesOutput() const {
   int base_level = input_vstorage_->base_level();
   bool matches = (GetCompressionType(immutable_cf_options_, input_vstorage_,
@@ -321,8 +327,8 @@ bool Compaction::IsTrivialMove() const {
   }
 
   if (!(start_level_ != output_level_ && num_input_levels() == 1 &&
-          input(0, 0)->fd.GetPathId() == output_path_id() &&
-          InputCompressionMatchesOutput())) {
+        input(0, 0)->fd.GetPathId() == output_path_id() &&
+        InputCompressionMatchesOutput())) {
     return false;
   }
 

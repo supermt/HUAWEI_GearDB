@@ -640,7 +640,7 @@ class Version {
                     MergeIteratorBuilder* merger_iter_builder,
                     RangeDelAggregator* range_del_agg,
                     bool allow_unprepared_value);
-
+  uint64_t GetCurrentTime();
   void AddIteratorsForLevel(const ReadOptions&, const FileOptions& soptions,
                             MergeIteratorBuilder* merger_iter_builder,
                             int level, RangeDelAggregator* range_del_agg,
