@@ -207,7 +207,7 @@ class CompactionPicker {
 
   std::pair<int, uint64_t> getLastScheduledL2Compaction() {
     std::pair<int, uint64_t> result = std::pair<int, uint64_t>(
-        scheduled_all_in_one_num, l2_moment_map[scheduled_all_in_one_num]);
+                                                       scheduled_all_in_one_num, l2_moment_map[scheduled_all_in_one_num]);
     return result;
   };
   // Register this compaction in the set of running compactions

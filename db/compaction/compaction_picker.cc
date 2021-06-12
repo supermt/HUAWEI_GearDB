@@ -160,6 +160,9 @@ CompactionPicker::~CompactionPicker() {}
 // Delete this compaction from the list of running compactions.
 void CompactionPicker::ReleaseCompactionFiles(Compaction* c, Status status) {
   UnregisterCompaction(c);
+  if (ioptions_.compaction_style == kCompactionStyleGear)
+    l2_moment_map.insert(std::pair<int, uint64_t>(scheduled_all_in_one_num,
+                                                  c->GetCurrentTime()));
   if (!status.ok()) {
     c->ResetNextCompactionIndex();
   }

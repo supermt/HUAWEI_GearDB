@@ -4554,12 +4554,11 @@ class Benchmark {
     }
     DBImpl* db_ptr = reinterpret_cast<DBImpl*>(db_.db);
 
-    std::unordered_map<Compaction*, int64_t> in_progress_L2_compaction_map = {};
     int64_t stage = 0;
     int64_t num_written = 0;
 
     // add by jinghuan, if huawei tuner is active, initial the write rate
-    // limiter}
+    // limiter
     int64_t s0 = 0;
     if (FLAGS_huawei_tuner) {
       // this tuner can be used only in Gear compaction.
@@ -4568,9 +4567,9 @@ class Benchmark {
       s0 = FLAGS_huawei_tuner_base_speed;
       thread->shared->write_rate_limiter.reset(NewGenericRateLimiter(s0));
     }
-    //    uint64_t before_write = FLAGS_env->NowMicros();
-    std::vector<uint64_t> l2_compaction_moment = {};
-    int last_l2_compaction = 0;
+    uint64_t before_write = FLAGS_env->NowMicros();
+    std::vector<std::pair<int, uint64_t>> l2_compaction_moment = {};
+    int recorded_l2_compaction_num = 0;
     // end jinghuan
 
     while (!duration.Done(entries_per_batch_)) {
@@ -4716,14 +4715,28 @@ class Benchmark {
           if (!compaction_queue->empty()) {
             // check through each level.
             int64_t s2 = LONG_MAX;
-            double spare_time = FLAGS_huawei_tuner_constant_k *
-                                FLAGS_huawei_tuner_initial_l2_time;
+            double spare_time =
+                FLAGS_huawei_tuner_constant_k * recorded_l2_compaction_num +
+                FLAGS_huawei_tuner_initial_l2_time;
             auto picker = compaction_queue->front()->compaction_picker();
-            if (picker->GetScheduleAllInOneCompaction() > last_l2_compaction) {
-              last_l2_compaction = picker->GetScheduleAllInOneCompaction();
+            int scheduled_l2_compaction_num =
+                picker->GetScheduleAllInOneCompaction();
+            if (scheduled_l2_compaction_num > recorded_l2_compaction_num) {
+              uint64_t time_gap =
+                  picker->getLastScheduledL2Compaction().second - before_write;
+              l2_compaction_moment.emplace_back(
+                  picker->getLastScheduledL2Compaction());
+              // record each l2 compaction time
+              std::cout << "first " << scheduled_l2_compaction_num
+                        << " second: " << time_gap << std::endl;
+              recorded_l2_compaction_num =
+                  picker->GetScheduleAllInOneCompaction();
               // spare_time = ax+b
-              spare_time = FLAGS_huawei_tuner_constant_k * last_l2_compaction +
-                           FLAGS_huawei_tuner_initial_l2_time;
+              // options.
+              spare_time =
+                  FLAGS_huawei_tuner_constant_k * recorded_l2_compaction_num +
+                  FLAGS_huawei_tuner_initial_l2_time;
+
               auto vfs = compaction_queue->front()->current()->storage_info();
 
               // calculate the s2 time.
@@ -4750,7 +4763,7 @@ class Benchmark {
               // now the system's write-in speed is set to s2, update it.
             }  // compaction number haven't increased
           }
-          // if the queue is empty, just push another write into the rocksdb.
+          // if the queue is empty, do not limit the write rate.
         }
       }
 
