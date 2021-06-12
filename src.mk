@@ -151,7 +151,10 @@ LIB_SOURCES =                                                   \
   table/block_based/partitioned_index_reader.cc                 \
   table/block_based/reader_common.cc                            \
   table/block_based/uncompression_dict_reader.cc                \
-  table/block_fetcher.cc                             		        \
+  table/block_fetcher.cc                             		    \
+  table/gear_block/gear_table_builder.cc						\
+  table/gear_block/gear_table_factory.cc						\
+  table/gear_block/gear_table_reader.cc							\
   table/cuckoo/cuckoo_table_builder.cc                          \
   table/cuckoo/cuckoo_table_factory.cc                          \
   table/cuckoo/cuckoo_table_reader.cc                           \
@@ -249,6 +252,7 @@ LIB_SOURCES =                                                   \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
   utilities/DOTA/report_agent.cc\
+
 
 ifeq ($(ARMCRC_SOURCE),1)
 LIB_SOURCES +=\
