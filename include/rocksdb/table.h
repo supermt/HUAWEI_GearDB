@@ -346,6 +346,7 @@ enum EncodingType : char {
   // bitwise compared to the prefix extractors stored in the file. An error
   // will be returned if the two don't match.
   kPrefix,
+  kGear,
 };
 
 // Table Properties that are specific to plain table properties.
@@ -355,7 +356,20 @@ struct PlainTablePropertyNames {
   static const std::string kNumBloomBlocks;
 };
 
+struct GearTablePropertyNames{
+  static const std::string kEncodingType;
+};
+
 const uint32_t kPlainTableVariableLength = 0;
+const uint32_t kGearTableFixedKeyLength = 15;
+const uint32_t kGearTableFixedValueLength = 10;
+
+struct GearTableOptions {
+  uint32_t user_key_len = kGearTableFixedKeyLength;
+  uint32_t user_value_len = kGearTableFixedValueLength;
+  EncodingType encoding_type = kGear;
+//  std::string index_dir_prefix = "indices/";
+};
 
 struct PlainTableOptions {
   // @user_key_len: plain table has optimization for fix-sized keys, which can
@@ -417,6 +431,9 @@ struct PlainTableOptions {
 
 extern TableFactory* NewPlainTableFactory(
     const PlainTableOptions& options = PlainTableOptions());
+
+extern TableFactory* GearTableFactory(
+    const GearTableOptions& options = GearTableOptions());
 
 struct CuckooTablePropertyNames {
   // The key that is used to fill empty buckets.
