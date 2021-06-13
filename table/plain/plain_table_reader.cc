@@ -11,14 +11,15 @@
 #include <vector>
 
 #include "db/dbformat.h"
-
+#include "memory/arena.h"
+#include "monitoring/histogram.h"
+#include "monitoring/perf_context_imp.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
-
 #include "table/block_based/block.h"
 #include "table/block_based/filter_block.h"
 #include "table/format.h"
@@ -29,10 +30,6 @@
 #include "table/plain/plain_table_factory.h"
 #include "table/plain/plain_table_key_coding.h"
 #include "table/two_level_iterator.h"
-
-#include "memory/arena.h"
-#include "monitoring/histogram.h"
-#include "monitoring/perf_context_imp.h"
 #include "util/coding.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
@@ -112,8 +109,7 @@ PlainTableReader::PlainTableReader(
       file_size_(file_size),
       table_properties_(nullptr) {}
 
-PlainTableReader::~PlainTableReader() {
-}
+PlainTableReader::~PlainTableReader() {}
 
 Status PlainTableReader::Open(
     const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
@@ -195,14 +191,12 @@ Status PlainTableReader::Open(
   return s;
 }
 
-void PlainTableReader::SetupForCompaction() {
-}
+void PlainTableReader::SetupForCompaction() {}
 
 InternalIterator* PlainTableReader::NewIterator(
     const ReadOptions& options, const SliceTransform* /* prefix_extractor */,
     Arena* arena, bool /*skip_filters*/, TableReaderCaller /*caller*/,
-    size_t /*compaction_readahead_size*/,
-    bool /* allow_unprepared_value */) {
+    size_t /*compaction_readahead_size*/, bool /* allow_unprepared_value */) {
   // Not necessarily used here, but make sure this has been initialized
   assert(table_properties_);
 
@@ -642,8 +636,7 @@ PlainTableIterator::PlainTableIterator(PlainTableReader* table,
   next_offset_ = offset_ = table_->file_info_.data_end_offset;
 }
 
-PlainTableIterator::~PlainTableIterator() {
-}
+PlainTableIterator::~PlainTableIterator() {}
 
 bool PlainTableIterator::Valid() const {
   return offset_ < table_->file_info_.data_end_offset &&
@@ -673,9 +666,8 @@ void PlainTableIterator::Seek(const Slice& target) {
     // it. This is needed for compaction: it creates iterator with
     // total_order_seek = true but usually never does Seek() on it,
     // only SeekToFirst().
-    status_ =
-        Status::InvalidArgument(
-          "total_order_seek not implemented for PlainTable.");
+    status_ = Status::InvalidArgument(
+        "total_order_seek not implemented for PlainTable.");
     offset_ = next_offset_ = table_->file_info_.data_end_offset;
     return;
   }
@@ -756,9 +748,7 @@ void PlainTableIterator::Next() {
   }
 }
 
-void PlainTableIterator::Prev() {
-  assert(false);
-}
+void PlainTableIterator::Prev() { assert(false); }
 
 Slice PlainTableIterator::key() const {
   assert(Valid());
@@ -770,9 +760,7 @@ Slice PlainTableIterator::value() const {
   return value_;
 }
 
-Status PlainTableIterator::status() const {
-  return status_;
-}
+Status PlainTableIterator::status() const { return status_; }
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE
