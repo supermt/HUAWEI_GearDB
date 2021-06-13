@@ -119,6 +119,8 @@ struct ImmutableCFOptions {
 
   const SliceTransform* memtable_insert_with_hint_prefix_extractor;
 
+  const std::string index_dir_prefix = "index";
+
   std::vector<DbPath> cf_paths;
   std::vector<PathMediaMap> cf_path_type_list;
 
