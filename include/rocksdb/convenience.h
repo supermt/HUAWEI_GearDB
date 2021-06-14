@@ -378,6 +378,16 @@ Status GetPlainTableOptionsFromMap(
     PlainTableOptions* new_table_options, bool input_strings_escaped = false,
     bool ignore_unknown_options = false);
 
+Status GetGearTableOptionsFromMap(
+    const ConfigOptions& config_options, const GearTableOptions& table_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    GearTableOptions* new_table_options);
+Status GetGearTableOptionsFromMap(
+    const GearTableOptions& table_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    GearTableOptions* new_table_options, bool input_strings_escaped = false,
+    bool ignore_unknown_options = false);
+
 // Take a string representation of option names and values, apply them into the
 // base_options, and return the new options as a result. The string has the
 // following format:
@@ -443,6 +453,13 @@ Status GetPlainTableOptionsFromString(const ConfigOptions& config_options,
                                       const PlainTableOptions& table_options,
                                       const std::string& opts_str,
                                       PlainTableOptions* new_table_options);
+Status GetGearTableOptionsFromString(const GearTableOptions& table_options,
+                                     const std::string& opts_str,
+                                     GearTableOptions* new_table_options);
+Status GetGearTableOptionsFromString(const ConfigOptions& config_options,
+                                     const GearTableOptions& table_options,
+                                     const std::string& opts_str,
+                                     GearTableOptions* new_table_options);
 
 Status GetMemTableRepFactoryFromString(
     const std::string& opts_str,

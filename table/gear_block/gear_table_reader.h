@@ -7,15 +7,16 @@
 
 #ifndef ROCKSDB_LITE
 #include <stdint.h>
+#include <table/plain/plain_table_bloom.h>
 
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-#include "GearTableIndexBuilder.h"
 #include "db/dbformat.h"
 #include "file/random_access_file_reader.h"
+#include "gear_table_index.h"
 #include "memory/arena.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -59,7 +60,6 @@ struct GearTableReaderFileInfo {
         attached_index_file(nullptr) {}
 };
 
-
 class GearTableReader : public TableReader {
  public:
   static Status Open(const ImmutableCFOptions& ioptions,
@@ -77,7 +77,8 @@ class GearTableReader : public TableReader {
                                 TableReaderCaller caller,
                                 size_t compaction_readahead_size = 0,
                                 bool allow_unprepared_value = false) override;
-
+  Status PopulateIndexRecordList(GearTableIndexBuilder* index_builder,
+                                 std::vector<uint32_t>* prefix_hashes);
   void Prepare(const Slice& target) override;
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
@@ -111,11 +112,6 @@ class GearTableReader : public TableReader {
   virtual ~GearTableReader();
 
  protected:
-  // Check bloom filter to see whether it might contain this prefix.
-  // The hash of the prefix is given, since it can be reused for index lookup
-  // too.
-  virtual bool MatchBloom(uint32_t hash) const;
-
   // PopulateIndex() builds index of keys. It must be called before any query
   // to the table.
   //
@@ -123,9 +119,7 @@ class GearTableReader : public TableReader {
   //        the object will be passed.
   //
 
-  Status PopulateIndex(TableProperties* props, int bloom_bits_per_key,
-                       double hash_table_ratio, size_t index_sparseness,
-                       size_t huge_page_tlb_size);
+  Status PopulateIndex(TableProperties* props);
 
   Status MmapDataIfNeeded();
 
@@ -135,7 +129,7 @@ class GearTableReader : public TableReader {
   // represents plain table's current status.
   Status status_;
 
-  PlainTableIndex index_;
+  GearTableIndex index_;
   bool full_scan_mode_;
 
   // data_start_offset_ and data_end_offset_ defines the range of the
@@ -157,6 +151,7 @@ class GearTableReader : public TableReader {
   const ImmutableCFOptions& ioptions_;
   std::unique_ptr<Cleanable> dummy_cleanable_;
   uint64_t file_size_;
+  uint64_t attached_index_file_size_;
 
  protected:  // for testing
   std::shared_ptr<const TableProperties> table_properties_;
@@ -196,28 +191,12 @@ class GearTableReader : public TableReader {
   }
 
   friend class TableCache;
-  friend class PlainTableIterator;
+  friend class GearTableIterator;
 
-  // Internal helper function to allocate memory for bloom filter
-  void AllocateBloom(int bloom_bits_per_key, int num_prefixes,
-                     size_t huge_page_tlb_size);
-
-  void FillBloom(const std::vector<uint32_t>& prefix_hashes);
-
-  // Read the key and value at `offset` to parameters for keys, the and
-  // `seekable`.
-  // On success, `offset` will be updated as the offset for the next key.
-  // `parsed_key` will be key in parsed format.
-  // if `internal_key` is not empty, it will be filled with key with slice
-  // format.
-  // if `seekable` is not null, it will return whether we can directly read
-  // data using this offset.
   Status Next(GearTableKeyDecoder* decoder, uint32_t* offset,
               ParsedInternalKey* parsed_key, Slice* internal_key, Slice* value,
               bool* seekable = nullptr) const;
-  // Get file offset for key target.
-  // return value prefix_matched is set to true if the offset is confirmed
-  // for a key with the same prefix as target.
+
   Status GetOffset(GearTableKeyDecoder* decoder, const Slice& target,
                    const Slice& prefix, uint32_t prefix_hash,
                    bool& prefix_matched, uint32_t* offset) const;
@@ -227,8 +206,6 @@ class GearTableReader : public TableReader {
   // No copying allowed
   explicit GearTableReader(const TableReader&) = delete;
   void operator=(const TableReader&) = delete;
-  Status PopulateIndexRecordList(GearTableIndexBuilder* index_builder,
-                                 std::vector<uint32_t>* prefix_hashes);
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

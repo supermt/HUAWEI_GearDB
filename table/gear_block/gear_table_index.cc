@@ -5,9 +5,11 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "table/gear_block/gear_table_index.h"
+#include "table/gear_block/gear_table_builder.h"
+
 #include <cinttypes>
 
-#include "table/gear_block/gear_table_index.h"
 #include "util/coding.h"
 #include "util/hash.h"
 
@@ -18,7 +20,7 @@ inline uint32_t GetBucketIdFromHash(uint32_t hash, uint32_t num_buckets) {
   assert(num_buckets > 0);
   return hash % num_buckets;
 }
-}
+}  // namespace
 
 Status GearTableIndex::InitFromRawData(Slice data) {
   if (!GetVarint32(&data, &index_size_)) {
@@ -54,7 +56,7 @@ GearTableIndex::IndexSearchResult GearTableIndex::GetOffset(
 }
 
 void GearTableIndexBuilder::IndexRecordList::AddRecord(uint32_t hash,
-                                                        uint32_t offset) {
+                                                       uint32_t offset) {
   if (num_records_in_current_group_ == kNumRecordsPerGroup) {
     current_group_ = AllocateNewGroup();
     num_records_in_current_group_ = 0;
@@ -66,7 +68,7 @@ void GearTableIndexBuilder::IndexRecordList::AddRecord(uint32_t hash,
 }
 
 void GearTableIndexBuilder::AddKeyPrefix(Slice key_prefix_slice,
-                                          uint32_t key_offset) {
+                                         uint32_t key_offset) {
   if (is_first_record_ || prev_key_prefix_ != key_prefix_slice.ToString()) {
     ++num_prefixes_;
     if (!is_first_record_) {
@@ -85,38 +87,14 @@ void GearTableIndexBuilder::AddKeyPrefix(Slice key_prefix_slice,
   }
 
   num_keys_per_prefix_++;
-  if (index_sparseness_ == 0 || num_keys_per_prefix_ % index_sparseness_ == 0) {
-    due_index_ = true;
-  }
+  due_index_ = true;
+
   is_first_record_ = false;
 }
 
-Slice GearTableIndexBuilder::Finish() {
-  AllocateIndex();
-  std::vector<IndexRecord*> hash_to_offsets(index_size_, nullptr);
-  std::vector<uint32_t> entries_per_bucket(index_size_, 0);
-  BucketizeIndexes(&hash_to_offsets, &entries_per_bucket);
+IOStatus GearTableIndexBuilder::Finish() { return file_->Flush(); }
 
-  keys_per_prefix_hist_.Add(num_keys_per_prefix_);
-  ROCKS_LOG_INFO(ioptions_.info_log, "Number of Keys per prefix Histogram: %s",
-                 keys_per_prefix_hist_.ToString().c_str());
-
-  // From the temp data structure, populate indexes.
-  return FillIndexes(hash_to_offsets, entries_per_bucket);
-}
-
-void GearTableIndexBuilder::AllocateIndex() {
-  if (prefix_extractor_ == nullptr || hash_table_ratio_ <= 0) {
-    // Fall back to pure binary search if the user fails to specify a prefix
-    // extractor.
-    index_size_ = 1;
-  } else {
-    double hash_table_size_multipier = 1.0 / hash_table_ratio_;
-    index_size_ =
-        static_cast<uint32_t>(num_prefixes_ * hash_table_size_multipier) + 1;
-    assert(index_size_ > 0);
-  }
-}
+void GearTableIndexBuilder::AllocateIndex() {}
 
 void GearTableIndexBuilder::BucketizeIndexes(
     std::vector<IndexRecord*>* hash_to_offsets,
@@ -157,8 +135,9 @@ Slice GearTableIndexBuilder::FillIndexes(
                   "Reserving %" PRIu32 " bytes for Gear table's sub_index",
                   sub_index_size_);
   auto total_allocate_size = GetTotalSize();
-  char* allocated = arena_->AllocateAligned(
-      total_allocate_size, huge_page_tlb_size_, ioptions_.info_log);
+  char* allocated =
+      arena_->AllocateAligned(total_allocate_size, 0, ioptions_.info_log);
+  // changed the huge_page_size to 0, add by jinghuan
 
   auto temp_ptr = EncodeVarint32(allocated, index_size_);
   uint32_t* index =
@@ -179,7 +158,8 @@ Slice GearTableIndexBuilder::FillIndexes(
         break;
       default:
         // point to second level indexes.
-        PutUnaligned(index + i, sub_index_offset | GearTableIndex::kSubIndexMask);
+        PutUnaligned(index + i,
+                     sub_index_offset | GearTableIndex::kSubIndexMask);
         char* prev_ptr = &sub_index[sub_index_offset];
         char* cur_ptr = EncodeVarint32(prev_ptr, num_keys_for_bucket);
         sub_index_offset += static_cast<uint32_t>(cur_ptr - prev_ptr);

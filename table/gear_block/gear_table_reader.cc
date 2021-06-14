@@ -10,8 +10,8 @@
 #include <string>
 #include <vector>
 
-#include "GearTableIndexBuilder.h"
 #include "db/dbformat.h"
+#include "gear_table_coding.h"
 #include "gear_table_index.h"
 #include "memory/arena.h"
 #include "monitoring/histogram.h"
@@ -87,7 +87,6 @@ class GearTableIterator : public InternalIterator {
   Status status_;
 };
 
-extern const uint64_t kGearTableMagicNumber;
 GearTableReader::GearTableReader(const ImmutableCFOptions& ioptions,
                                  std::unique_ptr<RandomAccessFileReader>&& file,
                                  const EnvOptions& storage_options,
@@ -106,31 +105,32 @@ GearTableReader::GearTableReader(const ImmutableCFOptions& ioptions,
                  static_cast<uint32_t>(table_properties->data_size)),
       ioptions_(ioptions),
       file_size_(file_size),
+      attached_index_file_size_(file_size),
       table_properties_(nullptr) {
   auto ori_file_name =
       file->file_name();  // it should be like
                           // /media/jinghuan/nvme/huawei_test//01234.sst
-  assert(ioptions.db_paths.size() != 0);
-  std::string index_dir = ioptions.db_paths[0].path + ioptions.index_dir_prefix;
-  std::string delimiter = "/";
-
-  size_t pos = 0;
-  std::string token;
-  while ((pos = ori_file_name.find(delimiter)) != std::string::npos) {
-    token = ori_file_name.substr(0, pos);
-    ori_file_name.erase(0, pos + delimiter.length());
-  }
-  std::string index_file_name = index_dir + token;
+  std::string index_file_name =
+      GearTableIndexBuilder::find_the_index_by_file_name(ioptions,
+                                                         ori_file_name);
   std::unique_ptr<FSRandomAccessFile> index_file;
   uint64_t index_file_size;
-  Status s = ioptions.fs->NewRandomAccessFile(
+  auto s = ioptions.fs->NewRandomAccessFile(
       index_file_name, FileOptions(storage_options), &index_file, nullptr);
+
+  s = ioptions.fs->GetFileSize(index_file_name, IOOptions(), &index_file_size,
+                               nullptr);
   assert(s.ok());
   std::unique_ptr<RandomAccessFileReader> index_file_reader(
       new RandomAccessFileReader(std::move(index_file), index_file_name));
-
   file_info_.attached_index_file = std::move(index_file_reader);
+  if (attached_index_file_size_ == 0) {
+    attached_index_file_size_ = index_file_size;
+  }
 }
+
+extern const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
+extern const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 
 GearTableReader::~GearTableReader() {}
 
@@ -147,7 +147,7 @@ Status GearTableReader::Open(const ImmutableCFOptions& ioptions,
   }
 
   TableProperties* props_ptr = nullptr;
-  auto s = ReadTableProperties(file.get(), file_size, kGearTableMagicNumber,
+  auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
                                ioptions, &props_ptr,
                                true /* compression_type_missing */);
   std::shared_ptr<TableProperties> props(props_ptr);
@@ -158,9 +158,9 @@ Status GearTableReader::Open(const ImmutableCFOptions& ioptions,
   auto& user_props = props->user_collected_properties;
   auto prefix_extractor_in_file = props->prefix_extractor_name;
 
-  EncodingType encoding_type = kGear;
+  EncodingType encoding_type = kPlain;
   auto encoding_type_prop =
-      user_props.find(GearTablePropertyNames::kEncodingType);
+      user_props.find(PlainTablePropertyNames::kEncodingType);
   if (encoding_type_prop != user_props.end()) {
     encoding_type = static_cast<EncodingType>(
         DecodeFixed32(encoding_type_prop->second.c_str()));
@@ -261,23 +261,6 @@ Status GearTableReader::PopulateIndexRecordList(
   return s;
 }
 
-void GearTableReader::AllocateBloom(int bloom_bits_per_key, int num_keys,
-                                    size_t huge_page_tlb_size) {
-  uint32_t bloom_total_bits = num_keys * bloom_bits_per_key;
-  if (bloom_total_bits > 0) {
-    enable_bloom_ = true;
-    bloom_.SetTotalBits(&arena_, bloom_total_bits, ioptions_.bloom_locality,
-                        huge_page_tlb_size, ioptions_.info_log);
-  }
-}
-
-void GearTableReader::FillBloom(const std::vector<uint32_t>& prefix_hashes) {
-  assert(bloom_.IsInitialized());
-  for (const auto prefix_hash : prefix_hashes) {
-    bloom_.AddHash(prefix_hash);
-  }
-}
-
 Status GearTableReader::MmapDataIfNeeded() {
   if (file_info_.is_mmap_mode) {
     // Get mmapped memory.
@@ -288,139 +271,38 @@ Status GearTableReader::MmapDataIfNeeded() {
   return Status::OK();
 }
 
-Status GearTableReader::PopulateIndex(TableProperties* props,
-                                      int bloom_bits_per_key,
-                                      double hash_table_ratio,
-                                      size_t index_sparseness,
-                                      size_t huge_page_tlb_size) {
+// PopulateIndex() builds index of keys. It must be called before any query
+// to the table.
+//
+// props: the table properties object that need to be stored. Ownership of
+//        the object will be passed.
+//
+// TODO: check whether this functions is needed in our situation?
+Status GearTableReader::PopulateIndex(TableProperties* props) {
   assert(props != nullptr);
-
+  // This function used to generate the entire list of key indices.
   BlockContents index_block_contents;
-  Status s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
-                           file_size_, kGearTableMagicNumber, ioptions_,
-                           GearTableIndexBuilder::kGearTableIndexBlock,
-                           BlockType::kIndex, &index_block_contents,
-                           true /* compression_type_missing */);
+  Status s =
+      ReadMetaBlock(file_info_.attached_index_file.get(), nullptr,
+                    attached_index_file_size_, kPlainTableMagicNumber,
+                    ioptions_, GearTableIndexBuilder::kGearTableIndexBlock,
+                    BlockType::kGearIndex, &index_block_contents, true);
 
   bool index_in_file = s.ok();
-
-  BlockContents bloom_block_contents;
-  bool bloom_in_file = false;
-  // We only need to read the bloom block if index block is in file.
-  if (index_in_file) {
-    s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
-                      file_size_, kGearTableMagicNumber, ioptions_,
-                      BloomBlockBuilder::kBloomBlock, BlockType::kFilter,
-                      &bloom_block_contents,
-                      true /* compression_type_missing */);
-    bloom_in_file = s.ok() && bloom_block_contents.data.size() > 0;
-  }
-
-  Slice* bloom_block;
-  if (bloom_in_file) {
-    // If bloom_block_contents.allocation is not empty (which will be the case
-    // for non-mmap mode), it holds the alloated memory for the bloom block.
-    // It needs to be kept alive to keep `bloom_block` valid.
-    bloom_block_alloc_ = std::move(bloom_block_contents.allocation);
-    bloom_block = &bloom_block_contents.data;
-  } else {
-    bloom_block = nullptr;
-  }
-
+  assert(index_in_file);
+  // this is not a bloom filter index, read it as the index block.
   Slice* index_block;
-  if (index_in_file) {
-    // If index_block_contents.allocation is not empty (which will be the case
-    // for non-mmap mode), it holds the alloated memory for the index block.
-    // It needs to be kept alive to keep `index_block` valid.
-    index_block_alloc_ = std::move(index_block_contents.allocation);
-    index_block = &index_block_contents.data;
-  } else {
-    index_block = nullptr;
-  }
 
-  if ((prefix_extractor_ == nullptr) && (hash_table_ratio != 0)) {
-    // moptions.prefix_extractor is requried for a hash-based look-up.
-    return Status::NotSupported(
-        "GearTable requires a prefix extractor enable prefix hash mode.");
-  }
-
-  // First, read the whole file, for every kIndexIntervalForSamePrefixKeys rows
-  // for a prefix (starting from the first one), generate a record of (hash,
-  // offset) and append it to IndexRecordList, which is a data structure created
-  // to store them.
-
-  if (!index_in_file) {
-    // Allocate bloom filter here for total order mode.
-    if (IsTotalOrderMode()) {
-      AllocateBloom(bloom_bits_per_key,
-                    static_cast<uint32_t>(props->num_entries),
-                    huge_page_tlb_size);
-    }
-  } else if (bloom_in_file) {
-    enable_bloom_ = true;
-    auto num_blocks_property = props->user_collected_properties.find(
-        GearTablePropertyNames::kNumBloomBlocks);
-
-    uint32_t num_blocks = 0;
-    if (num_blocks_property != props->user_collected_properties.end()) {
-      Slice temp_slice(num_blocks_property->second);
-      if (!GetVarint32(&temp_slice, &num_blocks)) {
-        num_blocks = 0;
-      }
-    }
-    // cast away const qualifier, because bloom_ won't be changed
-    bloom_.SetRawData(const_cast<char*>(bloom_block->data()),
-                      static_cast<uint32_t>(bloom_block->size()) * 8,
-                      num_blocks);
-  } else {
-    // Index in file but no bloom in file. Disable bloom filter in this case.
-    enable_bloom_ = false;
-    bloom_bits_per_key = 0;
-  }
-
-  GearTableIndexBuilder index_builder(&arena_, ioptions_, prefix_extractor_,
-                                      index_sparseness, hash_table_ratio,
-                                      huge_page_tlb_size);
-
-  std::vector<uint32_t> prefix_hashes;
-  if (!index_in_file) {
-    // Populates _bloom if enabled (total order mode)
-    s = PopulateIndexRecordList(&index_builder, &prefix_hashes);
-    if (!s.ok()) {
-      return s;
-    }
-  } else {
-    s = index_.InitFromRawData(*index_block);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
-  if (!index_in_file) {
-    if (!IsTotalOrderMode()) {
-      // Calculated bloom filter size and allocate memory for
-      // bloom filter based on the number of prefixes, then fill it.
-      AllocateBloom(bloom_bits_per_key, index_.GetNumPrefixes(),
-                    huge_page_tlb_size);
-      if (enable_bloom_) {
-        FillBloom(prefix_hashes);
-      }
-    }
-  }
-
-  // Fill two table properties.
-  if (!index_in_file) {
-    props->user_collected_properties["Gear_table_hash_table_size"] =
-        ToString(index_.GetIndexSize() * GearTableIndex::kOffsetLen);
-    props->user_collected_properties["Gear_table_sub_index_size"] =
-        ToString(index_.GetSubIndexSize());
-  } else {
-    props->user_collected_properties["Gear_table_hash_table_size"] =
-        ToString(0);
-    props->user_collected_properties["Gear_table_sub_index_size"] = ToString(0);
-  }
-
-  return Status::OK();
+  index_block_alloc_ = std::move(index_block_contents.allocation);
+  index_block = &index_block_contents.data;
+  GearTableIndexBuilder indexBuilder(&arena_, ioptions_, prefix_extractor_);
+  // TODO: read all index from the index file.
+  props->user_collected_properties["gear_table_index_table_size"] =
+      ToString(index_.GetIndexSize() * GearTableIndex::kOffsetLen);
+  props->user_collected_properties["gear_table_index_table_size"] =
+      ToString(index_.GetSubIndexSize());
+  s = index_.InitFromRawData(*index_block);
+  return s;
 }
 
 Status GearTableReader::GetOffset(GearTableKeyDecoder* decoder,
@@ -430,10 +312,7 @@ Status GearTableReader::GetOffset(GearTableKeyDecoder* decoder,
   prefix_matched = false;
   uint32_t prefix_index_offset;
   auto res = index_.GetOffset(prefix_hash, &prefix_index_offset);
-  if (res == GearTableIndex::kNoPrefixForBucket) {
-    *offset = file_info_.data_end_offset;
-    return Status::OK();
-  } else if (res == GearTableIndex::kDirectToFile) {
+  if (res == GearTableIndex::kDirectToFile) {
     *offset = prefix_index_offset;
     return Status::OK();
   }
@@ -500,20 +379,6 @@ Status GearTableReader::GetOffset(GearTableKeyDecoder* decoder,
   return Status::OK();
 }
 
-bool GearTableReader::MatchBloom(uint32_t hash) const {
-  if (!enable_bloom_) {
-    return true;
-  }
-
-  if (bloom_.MayContainHash(hash)) {
-    PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
-    return true;
-  } else {
-    PERF_COUNTER_ADD(bloom_sst_miss_count, 1);
-    return false;
-  }
-}
-
 Status GearTableReader::Next(GearTableKeyDecoder* decoder, uint32_t* offset,
                              ParsedInternalKey* parsed_key, Slice* internal_key,
                              Slice* value, bool* seekable) const {
@@ -547,67 +412,7 @@ Status GearTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
                             GetContext* get_context,
                             const SliceTransform* /* prefix_extractor */,
                             bool /*skip_filters*/) {
-  // Check bloom filter first.
-  Slice prefix_slice;
-  uint32_t prefix_hash;
-  if (IsTotalOrderMode()) {
-    if (full_scan_mode_) {
-      status_ =
-          Status::InvalidArgument("Get() is not allowed in full scan mode.");
-    }
-    // Match whole user key for bloom filter check.
-    if (!MatchBloom(GetSliceHash(GetUserKey(target)))) {
-      return Status::OK();
-    }
-    // in total order mode, there is only one bucket 0, and we always use empty
-    // prefix.
-    prefix_slice = Slice();
-    prefix_hash = 0;
-  } else {
-    prefix_slice = GetPrefix(target);
-    prefix_hash = GetSliceHash(prefix_slice);
-    if (!MatchBloom(prefix_hash)) {
-      return Status::OK();
-    }
-  }
-  uint32_t offset;
-  bool prefix_match;
-  GearTableKeyDecoder decoder(&file_info_, encoding_type_, user_key_len_,
-                              prefix_extractor_);
-  Status s = GetOffset(&decoder, target, prefix_slice, prefix_hash,
-                       prefix_match, &offset);
-
-  if (!s.ok()) {
-    return s;
-  }
-  ParsedInternalKey found_key;
-  ParsedInternalKey parsed_target;
-  if (!ParseInternalKey(target, &parsed_target)) {
-    return Status::Corruption(Slice());
-  }
-  Slice found_value;
-  while (offset < file_info_.data_end_offset) {
-    s = Next(&decoder, &offset, &found_key, nullptr, &found_value);
-    if (!s.ok()) {
-      return s;
-    }
-    if (!prefix_match) {
-      // Need to verify prefix for the first key found if it is not yet
-      // checked.
-      if (GetPrefix(found_key) != prefix_slice) {
-        return Status::OK();
-      }
-      prefix_match = true;
-    }
-
-    if (internal_comparator_.Compare(found_key, parsed_target) >= 0) {
-      bool dont_care __attribute__((__unused__));
-      if (!get_context->SaveValue(found_key, found_value, &dont_care,
-                                  dummy_cleanable_.get())) {
-        break;
-      }
-    }
-  }
+  // TODO: re-add the function Get()
   return Status::OK();
 }
 
@@ -688,14 +493,7 @@ void GearTableIterator::Seek(const Slice& target) {
   Slice prefix_slice = table_->GetPrefix(target);
   uint32_t prefix_hash = 0;
   // Bloom filter is ignored in total-order mode.
-  if (!table_->IsTotalOrderMode()) {
-    prefix_hash = GetSliceHash(prefix_slice);
-    if (!table_->MatchBloom(prefix_hash)) {
-      status_ = Status::OK();
-      offset_ = next_offset_ = table_->file_info_.data_end_offset;
-      return;
-    }
-  }
+
   bool prefix_match;
   status_ = table_->GetOffset(&decoder_, target, prefix_slice, prefix_hash,
                               prefix_match, &next_offset_);

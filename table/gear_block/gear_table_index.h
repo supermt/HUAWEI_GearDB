@@ -7,6 +7,8 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <rocksdb/io_status.h>
+
 #include <string>
 #include <vector>
 
@@ -20,24 +22,13 @@ namespace ROCKSDB_NAMESPACE {
 
 class GearTableIndex {
  public:
-  enum IndexSearchResult {
-    kNoPrefixForBucket = 0,
-    kDirectToFile = 1,
-    kSubindex = 2
-  };
+  enum IndexSearchResult { kNotFound = 0, kDirectToFile = 1 };
 
   explicit GearTableIndex(Slice data) { InitFromRawData(data); }
 
-  GearTableIndex()
-      : index_size_(0),
-        sub_index_size_(0),
-        num_prefixes_(0),
-        index_(nullptr),
-        sub_index_(nullptr) {}
+  GearTableIndex() : index_size_(0), {}
 
-  // The function that executes the lookup the hash table.
-  // The hash key is `prefix_hash`. The function fills the hash bucket
-  // content in `bucket_value`, which is up to the caller to interpret.
+  // Search through the B-Tree to get the value location
   IndexSearchResult GetOffset(uint32_t prefix_hash,
                               uint32_t* bucket_value) const;
 
@@ -45,12 +36,6 @@ class GearTableIndex {
   // index stored in the SST file.
   Status InitFromRawData(Slice index_data);
 
-  // Decode the sub index for specific hash bucket.
-  // The `offset` is the value returned as `bucket_value` by GetOffset()
-  // and is only valid when the return value is `kSubindex`.
-  // The return value is the pointer to the starting address of the
-  // sub-index. `upper_bound` is filled with the value indicating how many
-  // entries the sub-index has.
   const char* GetSubIndexBasePtrAndUpperBound(uint32_t offset,
                                               uint32_t* upper_bound) const {
     const char* index_ptr = &sub_index_[offset];
@@ -79,27 +64,30 @@ class GearTableIndex {
 class GearTableIndexBuilder {
  public:
   GearTableIndexBuilder(Arena* arena, const ImmutableCFOptions& ioptions,
-                         const SliceTransform* prefix_extractor,
-                         size_t index_sparseness, double hash_table_ratio,
-                         size_t huge_page_tlb_size)
-      : arena_(arena),
-        ioptions_(ioptions),
-        record_list_(kRecordsPerGroup),
-        is_first_record_(true),
-        due_index_(false),
-        num_prefixes_(0),
-        num_keys_per_prefix_(0),
-        prev_key_prefix_hash_(0),
-        index_sparseness_(index_sparseness),
-        index_size_(0),
-        sub_index_size_(0),
-        prefix_extractor_(prefix_extractor),
-        hash_table_ratio_(hash_table_ratio),
-        huge_page_tlb_size_(huge_page_tlb_size) {}
+                        const std::string index_file_name)
+      : arena_(arena), ioptions_(ioptions) {
+    // TODO: create the writable file according to the index_file_name
+  }
+  static std::string find_the_index_by_file_name(
+      const ImmutableCFOptions& ioptions, std::string& ori_file_name) {
+    assert(ioptions.db_paths.size() != 0);
+    std::string index_dir =
+        ioptions.db_paths[0].path + ioptions.index_dir_prefix;
+    std::string delimiter = "/";
 
+    size_t pos = 0;
+    std::string token;
+    while ((pos = ori_file_name.find(delimiter)) != std::string::npos) {
+      token = ori_file_name.substr(0, pos);
+      ori_file_name.erase(0, pos + delimiter.length());
+    }
+    return (index_dir + token);
+  }
   void AddKeyPrefix(Slice key_prefix_slice, uint32_t key_offset);
 
-  Slice Finish();
+  void AddKeyOffset(Slice key, uint32_t key_offset);
+
+  IOStatus Finish();
 
   uint32_t GetTotalSize() const {
     return VarintLength(index_size_) + VarintLength(num_prefixes_) +
@@ -136,8 +124,8 @@ class GearTableIndexBuilder {
              num_records_in_current_group_;
     }
     IndexRecord* At(size_t index) {
-      return &(groups_[index / kNumRecordsPerGroup]
-      [index % kNumRecordsPerGroup]);
+      return &(
+          groups_[index / kNumRecordsPerGroup][index % kNumRecordsPerGroup]);
     }
 
    private:
@@ -170,21 +158,9 @@ class GearTableIndexBuilder {
 
   Arena* arena_;
   const ImmutableCFOptions ioptions_;
-  HistogramImpl keys_per_prefix_hist_;
-  IndexRecordList record_list_;
-  bool is_first_record_;
-  bool due_index_;
-  uint32_t num_prefixes_;
-  uint32_t num_keys_per_prefix_;
-
-  uint32_t prev_key_prefix_hash_;
-  size_t index_sparseness_;
-  uint32_t index_size_;
-  uint32_t sub_index_size_;
+  WritableFileWriter* file_;
 
   const SliceTransform* prefix_extractor_;
-  double hash_table_ratio_;
-  size_t huge_page_tlb_size_;
 
   std::string prev_key_prefix_;
 

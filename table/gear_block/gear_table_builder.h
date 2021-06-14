@@ -11,12 +11,14 @@
 #include <string>
 #include <vector>
 
-#include "GearTableIndexBuilder.h"
 #include "db/version_edit.h"
+#include "gear_table_index.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
+#include "table/gear_block/gear_table_coding.h"
+#include "table/gear_block/gear_table_index.h"
 #include "table/plain/plain_table_bloom.h"
 #include "table/plain/plain_table_index.h"
 #include "table/plain/plain_table_key_coding.h"
@@ -44,15 +46,14 @@ class GearTableBuilder : public TableBuilder {
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
           int_tbl_prop_collector_factories,
       uint32_t column_family_id, WritableFileWriter* file,
-      uint32_t user_key_size, EncodingType encoding_type,
-      size_t index_sparseness, uint32_t bloom_bits_per_key,
-      const std::string& column_family_name, uint32_t num_probes = 6,
-      size_t huge_page_tlb_size = 0, double hash_table_ratio = 0,
-      bool store_index_in_file = false);
+      uint32_t user_key_len, uint32_t user_value_len,
+      EncodingType encoding_type, const std::string& column_family_name,
+      int target_level);
   // No copying allowed
   GearTableBuilder(const GearTableBuilder&) = delete;
   void operator=(const GearTableBuilder&) = delete;
 
+  static uint32_t CalculateHeaderSize() { return 2 * (sizeof(uint32_t)); };
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~GearTableBuilder();
 
@@ -88,7 +89,7 @@ class GearTableBuilder : public TableBuilder {
 
   TableProperties GetTableProperties() const override { return properties_; }
 
-  bool SaveIndexInFile() const { return store_index_in_file_; }
+  bool SaveIndexInFile() const { return true; }
 
   // Get file checksum
   std::string GetFileChecksum() const override;
@@ -103,25 +104,28 @@ class GearTableBuilder : public TableBuilder {
   std::vector<std::unique_ptr<IntTblPropCollector>>
       table_properties_collectors_;
 
-  BloomBlockBuilder bloom_block_;
   std::unique_ptr<GearTableIndexBuilder> index_builder_;
 
   WritableFileWriter* file_;
   uint64_t offset_ = 0;
-  uint32_t bloom_bits_per_key_;
-  size_t huge_page_tlb_size_;
+  uint32_t current_key_length;
+  uint32_t current_value_length;
   Status status_;
   IOStatus io_status_;
   TableProperties properties_;
   GearTableKeyEncoder encoder_;
-
-  bool store_index_in_file_;
+  std::string block_header_buffer;
+  std::string block_value_buffer;
+  std::string block_key_buffer;
+  int32_t page_entry_count;
 
   std::vector<uint32_t> keys_or_prefixes_hashes_;
+
   bool closed_ = false;  // Either Finish() or Abandon() has been called.
 
   const SliceTransform* prefix_extractor_;
-
+  uint64_t estimate_size_limit_;
+  uint64_t data_block_size = 256 * 1024l;
   Slice GetPrefix(const Slice& target) const {
     assert(target.size() >= 8);  // target is internal key
     return GetPrefixFromUserKey(GetUserKey(target));
@@ -130,6 +134,7 @@ class GearTableBuilder : public TableBuilder {
   Slice GetPrefix(const ParsedInternalKey& target) const {
     return GetPrefixFromUserKey(target.user_key);
   }
+  void FlushDataBlock();
 
   Slice GetUserKey(const Slice& key) const {
     return Slice(key.data(), key.size() - 8);

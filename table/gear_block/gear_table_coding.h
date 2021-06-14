@@ -23,12 +23,10 @@ class GearTableKeyEncoder {
  public:
   explicit GearTableKeyEncoder(EncodingType encoding_type,
                                 uint32_t user_key_len,
-                                const SliceTransform* prefix_extractor,
-                                size_t index_sparseness)
+                                const SliceTransform* prefix_extractor)
       : encoding_type_((prefix_extractor != nullptr) ? encoding_type : kGear),
         fixed_user_key_len_(user_key_len),
         prefix_extractor_(prefix_extractor),
-        index_sparseness_((index_sparseness > 1) ? index_sparseness : 1),
         key_count_for_prefix_(0) {}
   // key: the key to write out, in the format of internal key.
   // file: the output file to write out
@@ -48,7 +46,6 @@ class GearTableKeyEncoder {
   EncodingType encoding_type_;
   uint32_t fixed_user_key_len_;
   const SliceTransform* prefix_extractor_;
-  const size_t index_sparseness_;
   size_t key_count_for_prefix_;
   IterKey pre_prefix_;
 };
@@ -133,15 +130,7 @@ class GearTableKeyDecoder {
         fixed_user_key_len_(user_key_len),
         prefix_extractor_(prefix_extractor),
         in_prefix_(false) {}
-  // Find the next key.
-  // start: char array where the key starts.
-  // limit: boundary of the char array
-  // parsed_key: the output of the result key
-  // internal_key: if not null, fill with the output of the result key in
-  //               un-parsed format
-  // bytes_read: how many bytes read from start. Output
-  // seekable: whether key can be read from this place. Used when building
-  //           indexes. Output.
+
   Status NextKey(uint32_t start_offset, ParsedInternalKey* parsed_key,
                  Slice* internal_key, Slice* value, uint32_t* bytes_read,
                  bool* seekable = nullptr);

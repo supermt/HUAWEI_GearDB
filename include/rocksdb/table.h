@@ -346,7 +346,6 @@ enum EncodingType : char {
   // bitwise compared to the prefix extractors stored in the file. An error
   // will be returned if the two don't match.
   kPrefix,
-  kGear,
 };
 
 // Table Properties that are specific to plain table properties.
@@ -354,10 +353,6 @@ struct PlainTablePropertyNames {
   static const std::string kEncodingType;
   static const std::string kBloomVersion;
   static const std::string kNumBloomBlocks;
-};
-
-struct GearTablePropertyNames{
-  static const std::string kEncodingType;
 };
 
 const uint32_t kPlainTableVariableLength = 0;
@@ -432,7 +427,7 @@ struct PlainTableOptions {
 extern TableFactory* NewPlainTableFactory(
     const PlainTableOptions& options = PlainTableOptions());
 
-extern TableFactory* GearTableFactory(
+extern TableFactory* NewGearTableFactory(
     const GearTableOptions& options = GearTableOptions());
 
 struct CuckooTablePropertyNames {
