@@ -36,6 +36,9 @@ struct ImmutableDBOptions {
 
   std::string db_log_dir;
   std::string wal_dir;
+  // add by jinghuan
+  std::string index_dir_prefix;
+  // end of jinghuan
   uint32_t max_subcompactions;
   size_t max_log_file_size;
   size_t log_file_time_to_roll;

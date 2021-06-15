@@ -118,8 +118,8 @@ struct ImmutableCFOptions {
   uint32_t max_subcompactions;
 
   const SliceTransform* memtable_insert_with_hint_prefix_extractor;
-
-  const std::string index_dir_prefix = "index";
+  // add by jinghuan
+  std::string index_dir_prefix;
 
   std::vector<DbPath> cf_paths;
   std::vector<PathMediaMap> cf_path_type_list;

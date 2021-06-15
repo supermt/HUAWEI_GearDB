@@ -51,6 +51,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.db_paths = immutable_db_options.db_paths;
   options.db_log_dir = immutable_db_options.db_log_dir;
   options.wal_dir = immutable_db_options.wal_dir;
+  options.index_dir_prefix = immutable_db_options.index_dir_prefix;
   options.delete_obsolete_files_period_micros =
       mutable_db_options.delete_obsolete_files_period_micros;
   options.max_background_jobs = mutable_db_options.max_background_jobs;
