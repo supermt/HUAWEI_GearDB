@@ -52,7 +52,7 @@ typedef uint16_t BITWISE __be16; /* big endian, 16 bits */
 typedef uint32_t BITWISE __be32; /* big endian, 32 bits */
 typedef uint64_t BITWISE __be64; /* big endian, 64 bits */
 
-#define SHA1_LENGTH 20
+#define SHA1_LENGTH 30
 
 #define CACHE_SLOTS 23 /* prime */
 
