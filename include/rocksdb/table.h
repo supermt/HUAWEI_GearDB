@@ -362,8 +362,8 @@ const uint32_t kGearTableFixedValueLength = 10;
 struct GearTableOptions {
   uint32_t user_key_len = kGearTableFixedKeyLength;
   uint32_t user_value_len = kGearTableFixedValueLength;
-  EncodingType encoding_type = kGear;
-//  std::string index_dir_prefix = "indices/";
+  EncodingType encoding_type = kPlain;
+  //  std::string index_dir_prefix = "indices/";
 };
 
 struct PlainTableOptions {
