@@ -8,6 +8,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <array>
+
 #include "db/dbformat.h"
 #include "rocksdb/slice.h"
 #include "table/gear_block/gear_table_reader.h"
@@ -22,9 +23,9 @@ enum GearTableEntryType : unsigned char;
 class GearTableKeyEncoder {
  public:
   explicit GearTableKeyEncoder(EncodingType encoding_type,
-                                uint32_t user_key_len,
-                                const SliceTransform* prefix_extractor)
-      : encoding_type_((prefix_extractor != nullptr) ? encoding_type : kGear),
+                               uint32_t user_key_len,
+                               const SliceTransform* prefix_extractor)
+      : encoding_type_(kPlain),
         fixed_user_key_len_(user_key_len),
         prefix_extractor_(prefix_extractor),
         key_count_for_prefix_(0) {}
@@ -121,9 +122,9 @@ class GearTableFileReader {
 class GearTableKeyDecoder {
  public:
   explicit GearTableKeyDecoder(const GearTableReaderFileInfo* file_info,
-                                EncodingType encoding_type,
-                                uint32_t user_key_len,
-                                const SliceTransform* prefix_extractor)
+                               EncodingType encoding_type,
+                               uint32_t user_key_len,
+                               const SliceTransform* prefix_extractor)
       : file_reader_(file_info),
         encoding_type_(encoding_type),
         prefix_len_(0),
@@ -150,9 +151,8 @@ class GearTableKeyDecoder {
 
  private:
   Status NextGearEncodingKey(uint32_t start_offset,
-                              ParsedInternalKey* parsed_key,
-                              Slice* internal_key, uint32_t* bytes_read,
-                              bool* seekable = nullptr);
+                             ParsedInternalKey* parsed_key, Slice* internal_key,
+                             uint32_t* bytes_read, bool* seekable = nullptr);
   Status NextPrefixEncodingKey(uint32_t start_offset,
                                ParsedInternalKey* parsed_key,
                                Slice* internal_key, uint32_t* bytes_read,

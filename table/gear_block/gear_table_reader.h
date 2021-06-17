@@ -6,9 +6,8 @@
 #pragma once
 
 #ifndef ROCKSDB_LITE
-#include <stdint.h>
-#include <table/plain/plain_table_bloom.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -49,15 +48,17 @@ struct GearTableReaderFileInfo {
   Slice file_data;
   uint32_t data_end_offset;
   std::unique_ptr<RandomAccessFileReader> file;
-  std::unique_ptr<RandomAccessFileReader> attached_index_file;
+  //  std::unique_ptr<RandomAccessFileReader> attached_index_file;
+  //  std::string gear_index_file_name;
 
   GearTableReaderFileInfo(std::unique_ptr<RandomAccessFileReader>&& _file,
                           const EnvOptions& storage_options,
                           uint32_t _data_size_offset)
       : is_mmap_mode(storage_options.use_mmap_reads),
         data_end_offset(_data_size_offset),
-        file(std::move(_file)),
-        attached_index_file(nullptr) {}
+        file(std::move(_file))
+  //        attached_index_file(nullptr)
+  {}
 };
 
 class GearTableReader : public TableReader {
@@ -77,8 +78,7 @@ class GearTableReader : public TableReader {
                                 TableReaderCaller caller,
                                 size_t compaction_readahead_size = 0,
                                 bool allow_unprepared_value = false) override;
-  Status PopulateIndexRecordList(GearTableIndexBuilder* index_builder,
-                                 std::vector<uint32_t>* prefix_hashes);
+
   void Prepare(const Slice& target) override;
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
@@ -112,15 +112,6 @@ class GearTableReader : public TableReader {
   virtual ~GearTableReader();
 
  protected:
-  // PopulateIndex() builds index of keys. It must be called before any query
-  // to the table.
-  //
-  // props: the table properties object that need to be stored. Ownership of
-  //        the object will be passed.
-  //
-
-  Status PopulateIndex(TableProperties* props);
-
   Status MmapDataIfNeeded();
 
  private:
@@ -129,8 +120,8 @@ class GearTableReader : public TableReader {
   // represents plain table's current status.
   Status status_;
 
-  GearTableIndex index_;
-  bool full_scan_mode_;
+  GearTableIndexReader index_;
+  //  bool full_scan_mode_;
 
   // data_start_offset_ and data_end_offset_ defines the range of the
   // sst file that stores data.
@@ -140,13 +131,8 @@ class GearTableReader : public TableReader {
 
   static const size_t kNumInternalBytes = 8;
 
-  // Bloom filter is used to rule out non-existent key
-  bool enable_bloom_;
-  PlainTableBloomV1 bloom_;
   GearTableReaderFileInfo file_info_;
   Arena arena_;
-  CacheAllocationPtr index_block_alloc_;
-  CacheAllocationPtr bloom_block_alloc_;
 
   const ImmutableCFOptions& ioptions_;
   std::unique_ptr<Cleanable> dummy_cleanable_;
@@ -158,7 +144,7 @@ class GearTableReader : public TableReader {
 
  private:
   bool IsFixedLength() const {
-    return user_key_len_ != kPlainTableVariableLength;
+    return true;  // Gear Table is always with the fixed length key/value
   }
 
   size_t GetFixedInternalKeyLength() const {
@@ -198,8 +184,7 @@ class GearTableReader : public TableReader {
               bool* seekable = nullptr) const;
 
   Status GetOffset(GearTableKeyDecoder* decoder, const Slice& target,
-                   const Slice& prefix, uint32_t prefix_hash,
-                   bool& prefix_matched, uint32_t* offset) const;
+                   uint32_t* offset) const;
 
   bool IsTotalOrderMode() const { return (prefix_extractor_ == nullptr); }
 

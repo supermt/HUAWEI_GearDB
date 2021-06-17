@@ -6,9 +6,10 @@
 #pragma once
 
 #ifndef ROCKSDB_LITE
+#include <stdint.h>
+
 #include <memory>
 #include <string>
-#include <stdint.h>
 
 #include "options/options_helper.h"
 #include "rocksdb/options.h"
@@ -65,7 +66,6 @@ class GearTableFactory : public TableFactory {
  private:
   GearTableOptions table_options_;
 };
-
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

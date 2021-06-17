@@ -6,8 +6,7 @@
 #pragma once
 
 #ifndef ROCKSDB_LITE
-#include <stdint.h>
-
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -49,13 +48,14 @@ class GearTableBuilder : public TableBuilder {
       uint32_t user_key_len, uint32_t user_value_len,
       EncodingType encoding_type, const std::string& column_family_name,
       int target_level);
+  //      , WritableFileWriter* index_file);
   // No copying allowed
   GearTableBuilder(const GearTableBuilder&) = delete;
   void operator=(const GearTableBuilder&) = delete;
 
   static uint32_t CalculateHeaderSize() { return 2 * (sizeof(uint32_t)); };
   // REQUIRES: Either Finish() or Abandon() has been called.
-  ~GearTableBuilder();
+  ~GearTableBuilder() override;
 
   // Add key,value to the table being constructed.
   // REQUIRES: key is after any previously added key according to comparator.
@@ -89,8 +89,6 @@ class GearTableBuilder : public TableBuilder {
 
   TableProperties GetTableProperties() const override { return properties_; }
 
-  bool SaveIndexInFile() const { return true; }
-
   // Get file checksum
   std::string GetFileChecksum() const override;
 
@@ -107,6 +105,7 @@ class GearTableBuilder : public TableBuilder {
   std::unique_ptr<GearTableIndexBuilder> index_builder_;
 
   WritableFileWriter* file_;
+  //  WritableFileWriter* index_file_;
   uint64_t offset_ = 0;
   uint32_t current_key_length;
   uint32_t current_value_length;

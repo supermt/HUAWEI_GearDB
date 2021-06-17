@@ -79,7 +79,6 @@ std::string GearTableFactory::GetPrintableTableOptions() const {
 const GearTableOptions& GearTableFactory::table_options() const {
   return table_options_;
 }
-
 Status GetGearTableOptionsFromString(const GearTableOptions& table_options,
                                      const std::string& opts_str,
                                      GearTableOptions* new_table_options) {
@@ -103,70 +102,70 @@ Status GetGearTableOptionsFromString(const ConfigOptions& config_options,
   return GetGearTableOptionsFromMap(config_options, table_options, opts_map,
                                     new_table_options);
 }
-
-Status GetMemTableRepFactoryFromString(
-    const std::string& opts_str,
-    std::unique_ptr<MemTableRepFactory>* new_mem_factory) {
-  std::vector<std::string> opts_list = StringSplit(opts_str, ':');
-  size_t len = opts_list.size();
-
-  if (opts_list.empty() || opts_list.size() > 2) {
-    return Status::InvalidArgument("Can't parse memtable_factory option ",
-                                   opts_str);
-  }
-
-  MemTableRepFactory* mem_factory = nullptr;
-
-  if (opts_list[0] == "skip_list") {
-    // Expecting format
-    // skip_list:<lookahead>
-    if (2 == len) {
-      size_t lookahead = ParseSizeT(opts_list[1]);
-      mem_factory = new SkipListFactory(lookahead);
-    } else if (1 == len) {
-      mem_factory = new SkipListFactory();
-    }
-  } else if (opts_list[0] == "prefix_hash") {
-    // Expecting format
-    // prfix_hash:<hash_bucket_count>
-    if (2 == len) {
-      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
-      mem_factory = NewHashSkipListRepFactory(hash_bucket_count);
-    } else if (1 == len) {
-      mem_factory = NewHashSkipListRepFactory();
-    }
-  } else if (opts_list[0] == "hash_linkedlist") {
-    // Expecting format
-    // hash_linkedlist:<hash_bucket_count>
-    if (2 == len) {
-      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
-      mem_factory = NewHashLinkListRepFactory(hash_bucket_count);
-    } else if (1 == len) {
-      mem_factory = NewHashLinkListRepFactory();
-    }
-  } else if (opts_list[0] == "vector") {
-    // Expecting format
-    // vector:<count>
-    if (2 == len) {
-      size_t count = ParseSizeT(opts_list[1]);
-      mem_factory = new VectorRepFactory(count);
-    } else if (1 == len) {
-      mem_factory = new VectorRepFactory();
-    }
-  } else if (opts_list[0] == "cuckoo") {
-    return Status::NotSupported(
-        "cuckoo hash memtable is not supported anymore.");
-  } else {
-    return Status::InvalidArgument("Unrecognized memtable_factory option ",
-                                   opts_str);
-  }
-
-  if (mem_factory != nullptr) {
-    new_mem_factory->reset(mem_factory);
-  }
-
-  return Status::OK();
-}
+//
+// Status GetMemTableRepFactoryFromString(
+//    const std::string& opts_str,
+//    std::unique_ptr<MemTableRepFactory>* new_mem_factory) {
+//  std::vector<std::string> opts_list = StringSplit(opts_str, ':');
+//  size_t len = opts_list.size();
+//
+//  if (opts_list.empty() || opts_list.size() > 2) {
+//    return Status::InvalidArgument("Can't parse memtable_factory option ",
+//                                   opts_str);
+//  }
+//
+//  MemTableRepFactory* mem_factory = nullptr;
+//
+//  if (opts_list[0] == "skip_list") {
+//    // Expecting format
+//    // skip_list:<lookahead>
+//    if (2 == len) {
+//      size_t lookahead = ParseSizeT(opts_list[1]);
+//      mem_factory = new SkipListFactory(lookahead);
+//    } else if (1 == len) {
+//      mem_factory = new SkipListFactory();
+//    }
+//  } else if (opts_list[0] == "prefix_hash") {
+//    // Expecting format
+//    // prfix_hash:<hash_bucket_count>
+//    if (2 == len) {
+//      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
+//      mem_factory = NewHashSkipListRepFactory(hash_bucket_count);
+//    } else if (1 == len) {
+//      mem_factory = NewHashSkipListRepFactory();
+//    }
+//  } else if (opts_list[0] == "hash_linkedlist") {
+//    // Expecting format
+//    // hash_linkedlist:<hash_bucket_count>
+//    if (2 == len) {
+//      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
+//      mem_factory = NewHashLinkListRepFactory(hash_bucket_count);
+//    } else if (1 == len) {
+//      mem_factory = NewHashLinkListRepFactory();
+//    }
+//  } else if (opts_list[0] == "vector") {
+//    // Expecting format
+//    // vector:<count>
+//    if (2 == len) {
+//      size_t count = ParseSizeT(opts_list[1]);
+//      mem_factory = new VectorRepFactory(count);
+//    } else if (1 == len) {
+//      mem_factory = new VectorRepFactory();
+//    }
+//  } else if (opts_list[0] == "cuckoo") {
+//    return Status::NotSupported(
+//        "cuckoo hash memtable is not supported anymore.");
+//  } else {
+//    return Status::InvalidArgument("Unrecognized memtable_factory option ",
+//                                   opts_str);
+//  }
+//
+//  if (mem_factory != nullptr) {
+//    new_mem_factory->reset(mem_factory);
+//  }
+//
+//  return Status::OK();
+//}
 
 std::string ParseGearTableOptions(const ConfigOptions& config_options,
                                   const std::string& name,

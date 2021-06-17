@@ -48,8 +48,8 @@ IOStatus WriteBlock(const Slice& block_contents, WritableFileWriter* file,
 
 }  // namespace
 
-extern const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
-extern const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
+const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
+const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 
 GearTableBuilder::GearTableBuilder(
     const ImmutableCFOptions& ioptions, const MutableCFOptions& moptions,
@@ -57,22 +57,22 @@ GearTableBuilder::GearTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, WritableFileWriter* file, uint32_t user_key_len,
     uint32_t user_value_len, EncodingType encoding_type,
-    const std::string& column_family_name, int target_level)
+    const std::string& column_family_name, int target_level
+    //    WritableFileWriter* index_file
+    )
     : ioptions_(ioptions),
       moptions_(moptions),
       file_(file),
+      //      index_file_(index_file),
       offset_(0),
       current_key_length(0),
       current_value_length(0),
       encoder_(encoding_type, user_key_len, moptions.prefix_extractor.get()),
       prefix_extractor_(moptions.prefix_extractor.get()) {
   std::string ori_file_name = file->file_name();
-  std::string index_file_name =
-      GearTableIndexBuilder::find_the_index_by_file_name(ioptions,
-                                                         ori_file_name);
-  // Build index block and save it in the file if hash_table_ratio > 0
+
   index_builder_.reset(
-      new GearTableIndexBuilder(&arena_, ioptions, index_file_name));
+      new GearTableIndexBuilder(&arena_, ioptions, ori_file_name));
   properties_
       .user_collected_properties[PlainTablePropertyNames::kBloomVersion] =
       "1";  // For future use
@@ -81,7 +81,6 @@ GearTableBuilder::GearTableBuilder(
 
   this->estimate_size_limit_ =
       std::floor(std::pow(moptions.write_buffer_size, (target_level + 1)));
-
   // Initial from 0, add till the current size reaches estimate size limit
   properties_.num_data_blocks = 0;
   // Fill it later if store_index_in_file_ == true

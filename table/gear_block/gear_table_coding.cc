@@ -93,7 +93,7 @@ IOStatus GearTableKeyEncoder::AppendKey(const Slice& key,
   Slice key_to_write = key;  // Portion of internal key to write out.
 
   uint32_t user_key_size = static_cast<uint32_t>(key.size() - 8);
-  if (encoding_type_ == kGear) {
+  if (encoding_type_ == kPlain) {
     if (fixed_user_key_len_ == kGearTableFixedKeyLength) {
       // Write key length
       char key_size_buf[5];  // tmp buffer for key size as varint32
@@ -114,7 +114,7 @@ IOStatus GearTableKeyEncoder::AppendKey(const Slice& key,
     Slice prefix =
         prefix_extractor_->Transform(Slice(key.data(), user_key_size));
     if (key_count_for_prefix_ == 0 || prefix != pre_prefix_.GetUserKey() ||
-        key_count_for_prefix_ % index_sparseness_ == 0) {
+        key_count_for_prefix_ % 1 == 0) {
       key_count_for_prefix_ = 1;
       pre_prefix_.SetUserKey(prefix);
       size_bytes_pos += EncodeSize(kFullKey, user_key_size, size_bytes);
@@ -489,7 +489,7 @@ Status GearTableKeyDecoder::NextKeyNoValue(uint32_t start_offset,
     *seekable = true;
   }
   Status s;
-  if (encoding_type_ == kGear) {
+  if (encoding_type_ == kPlain) {
     return NextGearEncodingKey(start_offset, parsed_key, internal_key,
                                bytes_read, seekable);
   } else {
