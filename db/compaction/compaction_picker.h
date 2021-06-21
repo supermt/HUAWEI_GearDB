@@ -203,12 +203,14 @@ class CompactionPicker {
   bool GetOverlappingL0Files(VersionStorageInfo* vstorage,
                              CompactionInputFiles* start_level_inputs,
                              int output_level, int* parent_index);
-  int GetScheduleAllInOneCompaction() { return scheduled_all_in_one_num; }
+  int GetScheduleAllInOneCompaction() { return l2_moment_list.size(); }
 
   std::pair<int, uint64_t> getLastScheduledL2Compaction() {
-    std::pair<int, uint64_t> result = std::pair<int, uint64_t>(
-                                                       scheduled_all_in_one_num, l2_moment_map[scheduled_all_in_one_num]);
-    return result;
+    if (!l2_moment_list.empty()) {
+      return std::pair<int, uint64_t>(l2_moment_list.size(),
+                                      l2_moment_list.back());
+    }
+    return std::pair<int, uint64_t>(0, 0);
   };
   // Register this compaction in the set of running compactions
   void RegisterCompaction(Compaction* c);
@@ -242,8 +244,7 @@ class CompactionPicker {
   // Protected by DB mutex
   std::unordered_set<Compaction*> compactions_in_progress_;
   std::unordered_set<Compaction*> all_in_one_compaction_in_progress;
-  std::map<int, uint64_t> l2_moment_map;
-  int scheduled_all_in_one_num = 0;
+  std::vector<uint64_t> l2_moment_list;
   const InternalKeyComparator* const icmp_;
 };
 

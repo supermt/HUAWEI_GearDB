@@ -726,12 +726,11 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
 
   // add by jinghuan, mutable compaction thread priority
-  if (mutable_cf_options.mutable_compaction_thread_prior) {
-    if (compact_->compaction->output_level() == 0) {
+  if (this->db_options_.mutable_compaction_thread_prior) {
+    if (compact_->compaction->compaction_reason() ==
+        CompactionReason::kGearCompactionAllInOne) {
       // l0 compaction, time costly, won't even clean up spaces, with lower pri
-      thread_pri_ = Env::Priority::HIGH;
-    } else if (compact_->compaction->output_level() == 1) {
-      thread_pri_ = Env::Priority::L1;
+      thread_pri_ = Env::Priority::DEEP_COMPACT;
     } else {
       thread_pri_ = Env::Priority::LOW;
     }

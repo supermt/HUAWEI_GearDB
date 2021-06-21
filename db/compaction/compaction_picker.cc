@@ -160,9 +160,6 @@ CompactionPicker::~CompactionPicker() {}
 // Delete this compaction from the list of running compactions.
 void CompactionPicker::ReleaseCompactionFiles(Compaction* c, Status status) {
   UnregisterCompaction(c);
-  if (ioptions_.compaction_style == kCompactionStyleGear)
-    l2_moment_map.insert(std::pair<int, uint64_t>(scheduled_all_in_one_num,
-                                                  c->GetCurrentTime()));
   if (!status.ok()) {
     c->ResetNextCompactionIndex();
   }
@@ -1047,7 +1044,6 @@ void CompactionPicker::RegisterCompaction(Compaction* c) {
   }
   if (c->compaction_reason() == CompactionReason::kGearCompactionAllInOne) {
     all_in_one_compaction_in_progress.insert(c);
-    scheduled_all_in_one_num++;
   }
   compactions_in_progress_.insert(c);
 }
@@ -1062,6 +1058,7 @@ void CompactionPicker::UnregisterCompaction(Compaction* c) {
   }
   if (c->compaction_reason() == CompactionReason::kGearCompactionAllInOne) {
     all_in_one_compaction_in_progress.erase(c);
+    l2_moment_list.push_back(c->GetCurrentTime());
   }
   compactions_in_progress_.erase(c);
 }
