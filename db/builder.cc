@@ -51,12 +51,11 @@ TableBuilder* NewTableBuilder(
     uint64_t sample_for_compression, const CompressionOptions& compression_opts,
     int level, const bool skip_filters, const uint64_t creation_time,
     const uint64_t oldest_key_time, const uint64_t target_file_size,
-    const uint64_t file_creation_time, WritableFileWriter* index_file) {
+    const uint64_t file_creation_time) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
-  assert((index_file == nullptr) == ioptions.index_dir_prefix.empty());
-//  if (index_file != nullptr && ioptions.index_dir_prefix.empty()) {
+  //  if (index_file != nullptr && ioptions.index_dir_prefix.empty()) {
   //    return ioptions.table_factory->NewTableBuilder(
   //        TableBuilderOptions(ioptions, moptions, internal_comparator,
   //                            int_tbl_prop_collector_factories,
@@ -136,7 +135,7 @@ Status BuildTable(
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     TableBuilder* builder;
     std::unique_ptr<WritableFileWriter> file_writer;
-//    std::unique_ptr<WritableFileWriter> index_file_writer;
+    //    std::unique_ptr<WritableFileWriter> index_file_writer;
     // Currently we only enable dictionary compression during compaction to the
     // bottommost level.
     CompressionOptions compression_opts_for_flush(compression_opts);
@@ -162,33 +161,33 @@ Status BuildTable(
           std::move(file), fname, file_options, env, ioptions.statistics,
           ioptions.listeners, ioptions.file_checksum_gen_factory));
 
-        builder = NewTableBuilder(
-            ioptions, mutable_cf_options, internal_comparator,
-            int_tbl_prop_collector_factories, column_family_id,
-            column_family_name, file_writer.get(), compression,
-            sample_for_compression, compression_opts_for_flush, level,
-            false /* skip_filters */, creation_time, oldest_key_time,
-            0 /*target_file_size*/, file_creation_time);
-        //       else {  // the index name is not empty, means there is
-        //       something writing
-        //                // in the index dir.
-        //        std::unique_ptr<FSWritableFile> index_file;
-        //        s = NewWritableFile(fs, f_index_name, &index_file,
-        //        file_options); if (!s.ok()) {
-        //          EventHelpers::LogAndNotifyTableFileCreationFinished(
-        //              event_logger, ioptions.listeners, dbname,
-        //              column_family_name, f_index_name, job_id, meta->fd,
-        //              kInvalidBlobFileNumber, tp, reason, s);
-        //          return s;
-        //        }
-        //        index_file->SetIOPriority(io_priority);
-        //        index_file->SetWriteLifeTimeHint(write_hint);
-        //
-        //        index_file_writer.reset(new WritableFileWriter(
-        //            std::move(index_file), f_index_name, file_options, env,
-        //            ioptions.statistics, ioptions.listeners,
-        //            ioptions.file_checksum_gen_factory));
-        //      }
+      builder = NewTableBuilder(
+          ioptions, mutable_cf_options, internal_comparator,
+          int_tbl_prop_collector_factories, column_family_id,
+          column_family_name, file_writer.get(), compression,
+          sample_for_compression, compression_opts_for_flush, level,
+          false /* skip_filters */, creation_time, oldest_key_time,
+          0 /*target_file_size*/, file_creation_time);
+      //       else {  // the index name is not empty, means there is
+      //       something writing
+      //                // in the index dir.
+      //        std::unique_ptr<FSWritableFile> index_file;
+      //        s = NewWritableFile(fs, f_index_name, &index_file,
+      //        file_options); if (!s.ok()) {
+      //          EventHelpers::LogAndNotifyTableFileCreationFinished(
+      //              event_logger, ioptions.listeners, dbname,
+      //              column_family_name, f_index_name, job_id, meta->fd,
+      //              kInvalidBlobFileNumber, tp, reason, s);
+      //          return s;
+      //        }
+      //        index_file->SetIOPriority(io_priority);
+      //        index_file->SetWriteLifeTimeHint(write_hint);
+      //
+      //        index_file_writer.reset(new WritableFileWriter(
+      //            std::move(index_file), f_index_name, file_options, env,
+      //            ioptions.statistics, ioptions.listeners,
+      //            ioptions.file_checksum_gen_factory));
+      //      }
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),

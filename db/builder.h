@@ -52,8 +52,7 @@ TableBuilder* NewTableBuilder(
     const CompressionOptions& compression_opts, int level,
     const bool skip_filters = false, const uint64_t creation_time = 0,
     const uint64_t oldest_key_time = 0, const uint64_t target_file_size = 0,
-    const uint64_t file_creation_time = 0,
-    WritableFileWriter* index_file = nullptr);
+    const uint64_t file_creation_time = 0);
 
 // Build a Table file from the contents of *iter.  The generated file
 // will be named according to number specified in meta. On success, the rest of
