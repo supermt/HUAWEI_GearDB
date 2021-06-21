@@ -466,7 +466,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       write_dbid_to_manifest(options.write_dbid_to_manifest),
       log_readahead_size(options.log_readahead_size),
       file_checksum_gen_factory(options.file_checksum_gen_factory),
-      best_efforts_recovery(options.best_efforts_recovery) {
+      best_efforts_recovery(options.best_efforts_recovery),
+      mutable_compaction_thread_prior(options.mutable_compaction_thread_prior) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -700,6 +701,9 @@ void MutableDBOptions::Dump(Logger* log) const {
                    compaction_readahead_size);
   ROCKS_LOG_HEADER(log, "                 Options.max_background_flushes: %d",
                    max_background_flushes);
+  ROCKS_LOG_HEADER(
+      log, "                 Options.mutable_compaction_thread_prior: %d",
+      mutable_compaction_thread_prior);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

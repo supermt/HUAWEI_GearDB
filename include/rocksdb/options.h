@@ -289,10 +289,6 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool disable_auto_compactions = false;
 
-  // enable more priority levels for compaction
-
-  // Dynamically changeable through SetOptions() API
-  bool mutable_compaction_thread_prior = false;
 
   // This is a factory that provides TableFactory objects.
   // Default: a block-based table factory that provides a default
@@ -541,6 +537,8 @@ struct DBOptions {
   std::string wal_dir = "";
 
   std::string index_dir_prefix = "";
+
+  bool mutable_compaction_thread_prior = false;
 
   // The periodicity when obsolete files get deleted. The default
   // value is 6 hours. The files that get out of scope by compaction

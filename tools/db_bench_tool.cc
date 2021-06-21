@@ -633,6 +633,9 @@ DEFINE_int64(huawei_tuner_base_speed, 1500000,
 DEFINE_double(huawei_tuner_initial_l2_time, 0.5, "The basic l2 speed");
 DEFINE_double(huawei_tuner_constant_k, 1.25,
               "The coefficient for decreasing rate limiter");
+DEFINE_string(index_dir_prefix, "", "The index prefix for gear database");
+DEFINE_bool(use_gear_table, false,
+            "use gear table instead of block based table");
 
 // end jinghuan
 DEFINE_int64(tuner_step_size, 0,
@@ -3907,6 +3910,19 @@ class Benchmark {
       fprintf(stderr, "Cuckoo table is not supported in lite mode\n");
       exit(1);
 #endif  // ROCKSDB_LITE
+    } else if (FLAGS_use_gear_table) {
+      GearTableOptions gearTableOptions;
+      gearTableOptions.encoding_type = kPlain;
+      gearTableOptions.user_key_len = 15;
+      gearTableOptions.user_value_len = 10;
+
+      if (FLAGS_index_dir_prefix.empty()) {
+        fprintf(stderr, "error, the index dir prefix is empty");
+        exit(1);
+      }
+      options.index_dir_prefix = FLAGS_index_dir_prefix;
+      options.table_factory =
+          std::shared_ptr<TableFactory>(NewGearTableFactory(gearTableOptions));
     } else {
       BlockBasedTableOptions block_based_options;
       if (FLAGS_use_hash_search) {
@@ -4721,6 +4737,7 @@ class Benchmark {
             auto picker = compaction_queue->front()->compaction_picker();
             int scheduled_l2_compaction_num =
                 picker->GetScheduleAllInOneCompaction();
+            //            std::cout << scheduled_l2_compaction_num << std::endl;
             if (scheduled_l2_compaction_num > recorded_l2_compaction_num) {
               uint64_t time_gap =
                   picker->getLastScheduledL2Compaction().second - before_write;
@@ -4737,22 +4754,28 @@ class Benchmark {
                   FLAGS_huawei_tuner_constant_k * recorded_l2_compaction_num +
                   FLAGS_huawei_tuner_initial_l2_time;
 
-              auto vfs = compaction_queue->front()->current()->storage_info();
+              //              auto vfs =
+              //              compaction_queue->back()->current()->storage_info();
 
               // calculate the s2 time.
-              int64_t spare_size = 0;
-              int64_t upper_level_size = 0;
-              int64_t last_level_size = 0;
-              for (int i = 0; i < FLAGS_num_levels - 2; i++) {
-                upper_level_size += vfs->NumLevelBytes(i);
-              }
-              upper_level_size = std::max(
-                  upper_level_size,
+              int64_t spare_size =
                   FLAGS_write_buffer_size *
-                      (long)std::pow(FLAGS_level0_file_num_compaction_trigger,
-                                     FLAGS_num_levels - 2));
-              last_level_size = vfs->NumLevelFiles(FLAGS_num_levels - 1);
-              spare_size = std::max(upper_level_size, last_level_size);
+                  (long)std::pow(FLAGS_level0_file_num_compaction_trigger,
+                                 FLAGS_num_levels - 2);
+              //              int64_t upper_level_size = 0;
+              //              int64_t last_level_size = 0;
+              //              for (int i = 0; i < FLAGS_num_levels - 2; i++) {
+              //                upper_level_size += vfs->NumLevelBytes(i);
+              //              }
+              //              upper_level_size = std::max(
+              //                  upper_level_size,
+              //                  FLAGS_write_buffer_size *
+              //                      (long)std::pow(FLAGS_level0_file_num_compaction_trigger,
+              //                                     FLAGS_num_levels - 2));
+              //              last_level_size =
+              //              vfs->NumLevelFiles(FLAGS_num_levels - 1);
+              //              spare_size = std::max(upper_level_size,
+              //              last_level_size);
 
               s2 = spare_size / spare_time;
               std::cout << "rate changed: " << s2 << " bytes/s" << std::endl;
@@ -7372,6 +7395,12 @@ int db_bench_tool(int argc, char** argv) {
                                   ROCKSDB_NAMESPACE::Env::Priority::BOTTOM);
   FLAGS_env->SetBackgroundThreads(FLAGS_num_low_pri_threads,
                                   ROCKSDB_NAMESPACE::Env::Priority::LOW);
+  FLAGS_env->SetBackgroundThreads(
+      1,  // there is only one for L2 Compaction
+      ROCKSDB_NAMESPACE::Env::Priority::DEEP_COMPACT);
+
+  FLAGS_env->SetBackgroundThreads(1,  // there is only one for L2 Compaction
+                                  ROCKSDB_NAMESPACE::Env::Priority::BOTTOM);
 
   // changed by jinghuan, since we can provide db_path vector instead of db only
   // Choose a location for the test database if none given with --db=<path>

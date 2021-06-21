@@ -6,11 +6,10 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-#include "db/db_impl/db_impl.h"
-
 #include <cinttypes>
 
 #include "db/builder.h"
+#include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "file/sst_file_manager_impl.h"
@@ -2150,13 +2149,22 @@ void DBImpl::BGWorkFlush(void* arg) {
 void DBImpl::BGWorkCompaction(void* arg) {
   CompactionArg ca = *(reinterpret_cast<CompactionArg*>(arg));
   delete reinterpret_cast<CompactionArg*>(arg);
-  IOSTATS_SET_THREAD_POOL_ID(Env::Priority::LOW);
   TEST_SYNC_POINT("DBImpl::BGWorkCompaction");
-  auto prepicked_compaction =
-      static_cast<PrepickedCompaction*>(ca.prepicked_compaction);
-  static_cast_with_check<DBImpl>(ca.db)->BackgroundCallCompaction(
-      prepicked_compaction, Env::Priority::LOW);
-  delete prepicked_compaction;
+  if (ca.prepicked_compaction == nullptr) {
+    IOSTATS_SET_THREAD_POOL_ID(Env::Priority::LOW);
+    auto prepicked_compaction =
+        static_cast<PrepickedCompaction*>(ca.prepicked_compaction);
+    static_cast_with_check<DBImpl>(ca.db)->BackgroundCallCompaction(
+        prepicked_compaction, Env::Priority::LOW);
+    delete prepicked_compaction;
+  } else {
+    // kAllInOneCompaction
+    IOSTATS_SET_THREAD_POOL_ID(Env::Priority::DEEP_COMPACT);
+    auto prepicked_compaction =
+        static_cast<PrepickedCompaction*>(ca.prepicked_compaction);
+    static_cast_with_check<DBImpl>(ca.db)->BackgroundCallCompaction(
+        prepicked_compaction, Env::Priority::DEEP_COMPACT);
+  }
 }
 
 void DBImpl::BGWorkBottomCompaction(void* arg) {
@@ -2377,7 +2385,10 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
     assert((bg_thread_pri == Env::Priority::BOTTOM &&
             bg_bottom_compaction_scheduled_) ||
-           (bg_thread_pri == Env::Priority::LOW && bg_compaction_scheduled_));
+           (bg_thread_pri == Env::Priority::LOW && bg_compaction_scheduled_) ||
+           (bg_thread_pri == Env::Priority::DEEP_COMPACT &&
+            bg_compaction_scheduled_ && prepicked_compaction != nullptr));
+
     Status s = BackgroundCompaction(&made_progress, &job_context, &log_buffer,
                                     prepicked_compaction, bg_thread_pri);
     TEST_SYNC_POINT("BackgroundCallCompaction:1");
@@ -2441,7 +2452,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
     assert(num_running_compactions_ > 0);
     num_running_compactions_--;
-    if (bg_thread_pri == Env::Priority::LOW) {
+    if (bg_thread_pri == Env::Priority::LOW ||
+        bg_thread_pri == Env::Priority::DEEP_COMPACT) {
       bg_compaction_scheduled_--;
     } else {
       assert(bg_thread_pri == Env::Priority::BOTTOM);
@@ -2544,12 +2556,13 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     if (!c) {
       m->done = true;
       m->manual_end = nullptr;
-      ROCKS_LOG_BUFFER(log_buffer,
-                       "[%s] Manual compaction from level-%d from %s .. "
-                       "%s; nothing to do\n",
-                       m->cfd->GetName().c_str(), m->input_level,
-                       (m->begin ? m->begin->DebugString(true).c_str() : "(begin)"),
-                       (m->end ? m->end->DebugString(true).c_str() : "(end)"));
+      ROCKS_LOG_BUFFER(
+          log_buffer,
+          "[%s] Manual compaction from level-%d from %s .. "
+          "%s; nothing to do\n",
+          m->cfd->GetName().c_str(), m->input_level,
+          (m->begin ? m->begin->DebugString(true).c_str() : "(begin)"),
+          (m->end ? m->end->DebugString(true).c_str() : "(end)"));
     } else {
       // First check if we have enough room to do the compaction
       bool enough_room = EnoughRoomForCompaction(
@@ -2784,7 +2797,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                      ->storage_info()
                      ->MaxOutputLevel(
                          immutable_db_options_.allow_ingest_behind) &&
-             env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
+             env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0 &&
+             prepicked_compaction == nullptr) {
     // Forward compactions involving last level to the bottom pool if it exists,
     // such that compactions unlikely to contribute to write stalls can be
     // delayed or deprioritized.
@@ -2794,10 +2808,28 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ca->prepicked_compaction = new PrepickedCompaction;
     ca->prepicked_compaction->compaction = c.release();
     ca->prepicked_compaction->manual_compaction_state = nullptr;
+
     // Transfer requested token, so it doesn't need to do it again.
     ca->prepicked_compaction->task_token = std::move(task_token);
+    ca->prepicked_compaction->once_scheduled = false;
     ++bg_bottom_compaction_scheduled_;
     env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca, Env::Priority::BOTTOM,
+                   this, &DBImpl::UnscheduleCompactionCallback);
+  } else if (prepicked_compaction != nullptr &&
+             immutable_db_options_.mutable_compaction_thread_prior &&
+             c->compaction_reason() ==
+                 CompactionReason::kGearCompactionAllInOne &&
+             env_->GetBackgroundThreads(Env::Priority::DEEP_COMPACT) > 0 &&
+             prepicked_compaction->once_scheduled != true) {
+    CompactionArg* ca = new CompactionArg;
+    ca->db = this;
+    ca->prepicked_compaction = new PrepickedCompaction;
+    ca->prepicked_compaction->compaction = c.release();
+    ca->prepicked_compaction->once_scheduled = true;
+    // forward this to the DEEP Compaction thread pool
+    ++bg_compaction_scheduled_;
+    //    unscheduled_compactions_--;
+    env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::DEEP_COMPACT,
                    this, &DBImpl::UnscheduleCompactionCallback);
   } else {
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:BeforeCompaction",
