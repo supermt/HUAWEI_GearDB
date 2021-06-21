@@ -20,60 +20,10 @@ struct ParsedInternalKey;
 struct GearTableReaderFileInfo;
 enum GearTableEntryType : unsigned char;
 
-class GearTableKeyEncoder {
- public:
-  explicit GearTableKeyEncoder(EncodingType encoding_type,
-                               uint32_t user_key_len,
-                               const SliceTransform* prefix_extractor)
-      : encoding_type_(kPlain),
-        fixed_user_key_len_(user_key_len),
-        prefix_extractor_(prefix_extractor),
-        key_count_for_prefix_(0) {}
-  // key: the key to write out, in the format of internal key.
-  // file: the output file to write out
-  // offset: offset in the file. Needs to be updated after appending bytes
-  //         for the key
-  // meta_bytes_buf: buffer for extra meta bytes
-  // meta_bytes_buf_size: offset to append extra meta bytes. Will be updated
-  //                      if meta_bytes_buf is updated.
-  IOStatus AppendKey(const Slice& key, WritableFileWriter* file,
-                     uint64_t* offset, char* meta_bytes_buf,
-                     size_t* meta_bytes_buf_size);
-
-  // Return actual encoding type to be picked
-  EncodingType GetEncodingType() { return encoding_type_; }
-
- private:
-  EncodingType encoding_type_;
-  uint32_t fixed_user_key_len_;
-  const SliceTransform* prefix_extractor_;
-  size_t key_count_for_prefix_;
-  IterKey pre_prefix_;
-};
-
 class GearTableFileReader {
  public:
   explicit GearTableFileReader(const GearTableReaderFileInfo* _file_info)
       : file_info_(_file_info), num_buf_(0) {}
-  // In mmaped mode, the results point to mmaped area of the file, which
-  // means it is always valid before closing the file.
-  // In non-mmap mode, the results point to an internal buffer. If the caller
-  // makes another read call, the results may not be valid. So callers should
-  // make a copy when needed.
-  // In order to save read calls to files, we keep two internal buffers:
-  // the first read and the most recent read. This is efficient because it
-  // columns these two common use cases:
-  // (1) hash index only identify one location, we read the key to verify
-  //     the location, and read key and value if it is the right location.
-  // (2) after hash index checking, we identify two locations (because of
-  //     hash bucket conflicts), we binary search the two location to see
-  //     which one is what we need and start to read from the location.
-  // These two most common use cases will be covered by the two buffers
-  // so that we don't need to re-read the same location.
-  // Currently we keep a fixed size buffer. If a read doesn't exactly fit
-  // the buffer, we replace the second buffer with the location user reads.
-  //
-  // If return false, status code is stored in status_.
   bool Read(uint32_t file_offset, uint32_t len, Slice* out) {
     if (file_info_->is_mmap_mode) {
       assert(file_offset + len <= file_info_->data_end_offset);
@@ -84,6 +34,7 @@ class GearTableFileReader {
     }
   }
 
+  const static uint32_t page_size = 4096;
   // If return false, status code is stored in status_.
   bool ReadNonMmap(uint32_t file_offset, uint32_t len, Slice* output);
 
@@ -99,6 +50,11 @@ class GearTableFileReader {
   Status status() const { return status_; }
 
   const GearTableReaderFileInfo* file_info() { return file_info_; }
+
+  Status NextKey(uint32_t offset, ParsedInternalKey* parsedKey,
+                 Slice* internalKey, Slice* value, uint32_t* bytes_read,
+                 bool* seekable);
+  Status NextBlock(uint32_t offset);
 
  private:
   const GearTableReaderFileInfo* file_info_;
@@ -117,52 +73,6 @@ class GearTableFileReader {
   Status status_;
 
   Slice GetFromBuffer(Buffer* buf, uint32_t file_offset, uint32_t len);
-};
-
-class GearTableKeyDecoder {
- public:
-  explicit GearTableKeyDecoder(const GearTableReaderFileInfo* file_info,
-                               EncodingType encoding_type,
-                               uint32_t user_key_len,
-                               const SliceTransform* prefix_extractor)
-      : file_reader_(file_info),
-        encoding_type_(encoding_type),
-        prefix_len_(0),
-        fixed_user_key_len_(user_key_len),
-        prefix_extractor_(prefix_extractor),
-        in_prefix_(false) {}
-
-  Status NextKey(uint32_t start_offset, ParsedInternalKey* parsed_key,
-                 Slice* internal_key, Slice* value, uint32_t* bytes_read,
-                 bool* seekable = nullptr);
-
-  Status NextKeyNoValue(uint32_t start_offset, ParsedInternalKey* parsed_key,
-                        Slice* internal_key, uint32_t* bytes_read,
-                        bool* seekable = nullptr);
-
-  GearTableFileReader file_reader_;
-  EncodingType encoding_type_;
-  uint32_t prefix_len_;
-  uint32_t fixed_user_key_len_;
-  Slice saved_user_key_;
-  IterKey cur_key_;
-  const SliceTransform* prefix_extractor_;
-  bool in_prefix_;
-
- private:
-  Status NextGearEncodingKey(uint32_t start_offset,
-                             ParsedInternalKey* parsed_key, Slice* internal_key,
-                             uint32_t* bytes_read, bool* seekable = nullptr);
-  Status NextPrefixEncodingKey(uint32_t start_offset,
-                               ParsedInternalKey* parsed_key,
-                               Slice* internal_key, uint32_t* bytes_read,
-                               bool* seekable = nullptr);
-  Status ReadInternalKey(uint32_t file_offset, uint32_t user_key_size,
-                         ParsedInternalKey* parsed_key, uint32_t* bytes_read,
-                         bool* internal_key_valid, Slice* internal_key);
-  inline Status DecodeSize(uint32_t start_offset,
-                           GearTableEntryType* entry_type, uint32_t* key_size,
-                           uint32_t* bytes_read);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

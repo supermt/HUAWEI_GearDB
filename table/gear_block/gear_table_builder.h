@@ -112,7 +112,6 @@ class GearTableBuilder : public TableBuilder {
   Status status_;
   IOStatus io_status_;
   TableProperties properties_;
-  GearTableKeyEncoder encoder_;
   std::string block_header_buffer;
   std::string block_value_buffer;
   std::string block_key_buffer;
@@ -124,7 +123,7 @@ class GearTableBuilder : public TableBuilder {
 
   const SliceTransform* prefix_extractor_;
   uint64_t estimate_size_limit_;
-  uint64_t data_block_size = 256 * 1024l;
+  uint64_t data_block_size = GearTableFileReader::page_size;
   Slice GetPrefix(const Slice& target) const {
     assert(target.size() >= 8);  // target is internal key
     return GetPrefixFromUserKey(GetUserKey(target));

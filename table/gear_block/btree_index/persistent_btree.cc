@@ -137,6 +137,7 @@ int btree_creat(struct btree *btree, const char *fname) {
 }
 
 void btree_close(struct btree *btree) {
+  flush_super(btree);
   close(btree->fd);
 
   size_t i;
@@ -630,7 +631,6 @@ void btree_insert(struct btree *btree, const uint8_t *c_sha1, const void *data,
 
   insert_toplevel(btree, &btree->top, sha1, data, len);
   free_queued(btree);
-  flush_super(btree);
 }
 
 /*

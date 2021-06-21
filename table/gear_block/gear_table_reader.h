@@ -15,6 +15,7 @@
 
 #include "db/dbformat.h"
 #include "file/random_access_file_reader.h"
+#include "gear_table_coding.h"
 #include "gear_table_index.h"
 #include "memory/arena.h"
 #include "rocksdb/env.h"
@@ -121,6 +122,7 @@ class GearTableReader : public TableReader {
   Status status_;
 
   GearTableIndexReader index_;
+  GearTableFileReader* file_reader_;
   //  bool full_scan_mode_;
 
   // data_start_offset_ and data_end_offset_ defines the range of the

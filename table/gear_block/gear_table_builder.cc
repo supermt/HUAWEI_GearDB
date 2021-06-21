@@ -67,7 +67,6 @@ GearTableBuilder::GearTableBuilder(
       offset_(0),
       current_key_length(0),
       current_value_length(0),
-      encoder_(encoding_type, user_key_len, moptions.prefix_extractor.get()),
       prefix_extractor_(moptions.prefix_extractor.get()) {
   std::string ori_file_name = file->file_name();
 
@@ -94,7 +93,7 @@ GearTableBuilder::GearTableBuilder(
                                           : "nullptr";
 
   std::string val;
-  PutFixed32(&val, static_cast<uint32_t>(encoder_.GetEncodingType()));
+  PutFixed32(&val, static_cast<uint32_t>(kPlain));
   properties_
       .user_collected_properties[PlainTablePropertyNames::kEncodingType] = val;
 
