@@ -18,20 +18,25 @@ namespace ROCKSDB_NAMESPACE {
 const std::string GearTableIndexBuilder::kGearTableIndexBlock =
     "GearTableIndexBlock";
 void GearTableIndexBuilder::AddKeyOffset(Slice key, uint32_t key_offset) {
-  std::pair<std::string, uint32_t> index_pair;
-  btree_insert(btree, reinterpret_cast<const uint8_t *>(key.data()),
-               &key_offset, sizeof(key_offset));
+  //  std::pair<std::string, uint32_t> index_pair;
+  //  btree_insert(&btree, reinterpret_cast<const uint8_t *>(key.data()),
+  //               &key_offset, sizeof(key_offset));
+  //
+  return;
 }
 
-IOStatus GearTableIndexBuilder::Finish() { return this->file_writer_->Flush(); }
+IOStatus GearTableIndexBuilder::Finish() {
+  btree_close(&btree);
+  return IOStatus().OK();
+}
 
 GearTableIndexReader::IndexSearchResult GearTableIndexReader::GetOffset(
     rocksdb::Slice key, uint32_t *target_offset) const {
   const uint8_t *search_key = reinterpret_cast<const uint8_t *>(key.data());
   size_t value_size = kOffsetLen;
   //      sizeof(uint32_t);
-  uint32_t *result =
-      static_cast<uint32_t *>(btree_get(btree, search_key, &value_size));
+  uint32_t *result = static_cast<uint32_t *>(
+      btree_get((BTree *)(&btree), search_key, &value_size));
   if (result == nullptr) {
     *target_offset = *result;
     return kDirectToFile;

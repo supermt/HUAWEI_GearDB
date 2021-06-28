@@ -29,25 +29,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
-// a utility that helps writing block content to the file
-//   @offset will advance if @block_contents was successfully written.
-//   @block_handle the block handle this particular block.
-IOStatus WriteBlock(const Slice& block_contents, WritableFileWriter* file,
-                    uint64_t* offset, BlockHandle* block_handle) {
-  block_handle->set_offset(*offset);
-  block_handle->set_size(block_contents.size());
-  IOStatus io_s = file->Append(block_contents);
-
-  if (io_s.ok()) {
-    *offset += block_contents.size();
-  }
-  return io_s;
-}
-
-}  // namespace
-
 const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
 const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 
@@ -64,6 +45,7 @@ GearTableBuilder::GearTableBuilder(
       moptions_(moptions),
       file_(file),
       //      index_file_(index_file),
+
       offset_(0),
       current_key_length(0),
       current_value_length(0),
@@ -107,12 +89,20 @@ GearTableBuilder::~GearTableBuilder() {}
 
 // Here is the data format
 // ------------------------------------------------------------------------
-// | Header 64bit, (data_block_num+ entry_count) | value array...key array|
+// | Header 32*4 bit, (data_block_num+ entry_count + value_array_length +
+// key_array_length) | value array...key array|
 void GearTableBuilder::FlushDataBlock() {
   // add another key would extends the data block limit
   properties_.num_data_blocks += 1;
   PutFixed32(&block_header_buffer, properties_.num_data_blocks);
   PutFixed32(&block_header_buffer, page_entry_count);
+
+  assert(current_key_length == block_key_buffer.size());
+  assert(current_key_length == block_value_buffer.size());
+
+  PutFixed32(&block_value_buffer, (uint32_t)block_value_buffer.size());
+  PutFixed32(&block_value_buffer, (uint32_t)block_key_buffer.size());
+
   // Gear table don't need any meta data.
   std::reverse(block_key_buffer.begin(), block_key_buffer.end());
   std::string data_block =
@@ -211,52 +201,28 @@ Status GearTableBuilder::Finish() {
   properties_.data_size = offset_;
 
   // Check if there is any remaining data.
+  // record the following entries in the file as the meta data
+  std::string meta_block = "";
+  PutFixed64(&meta_block, properties_.num_data_blocks);
+  PutFixed64(&meta_block, properties_.raw_key_size);
+  PutFixed64(&meta_block, properties_.raw_value_size);
+  PutFixed64(&meta_block, properties_.data_size);
+  PutFixed64(&meta_block, properties_.index_size);
+  PutFixed64(&meta_block, properties_.num_entries);
+  PutFixed64(&meta_block, properties_.num_deletions);
+  PutFixed64(&meta_block, properties_.num_merge_operands);
+  PutFixed64(&meta_block, properties_.num_range_deletions);
+  PutFixed64(&meta_block, properties_.format_version);
+  PutFixed64(&meta_block, properties_.creation_time);
+  PutFixed64(&meta_block, properties_.oldest_key_time);
+  PutFixed64(&meta_block, properties_.file_creation_time);
 
-  //  1. [meta block: bloom] - ignore
-  //  2. [meta block: index] - ignore
-  //  3. [meta block: properties]
-  //  4. [metaindex block]
-  //  5. [footer];
+  assert(meta_block.size() == GearTableFileReader::meta_page_size);
 
-  PropertyBlockBuilder prop_block_builder;
-  MetaIndexBuilder meta_index_builer;
-  prop_block_builder.AddTableProperty(properties_);
-  prop_block_builder.Add(properties_.user_collected_properties);
-  NotifyCollectTableCollectorsOnFinish(table_properties_collectors_,
-                                       ioptions_.info_log, &prop_block_builder);
+  file_->Append(meta_block);
+  file_->Flush();
 
-  BlockHandle prop_block_handle;
-  IOStatus s = WriteBlock(prop_block_builder.Finish(), file_, &offset_,
-                          &prop_block_handle);
-
-  if (!s.ok()) {
-    return std::move(s);
-  }
-  meta_index_builer.Add(kPropertiesBlock, prop_block_handle);
-
-  // -- write metaindex block
-  BlockHandle metaindex_block_handle;
-  io_status_ = WriteBlock(meta_index_builer.Finish(), file_, &offset_,
-                          &metaindex_block_handle);
-  if (!io_status_.ok()) {
-    status_ = io_status_;
-    return status_;
-  }
-
-  // Write Footer
-  // no need to write out new footer if we're using default checksum
-  Footer footer(kLegacyPlainTableMagicNumber, 0);
-  footer.set_metaindex_handle(metaindex_block_handle);
-  footer.set_index_handle(BlockHandle::NullBlockHandle());
-  std::string footer_encoding;
-  footer.EncodeTo(&footer_encoding);
-  io_status_ = file_->Append(footer_encoding);
-  if (io_status_.ok()) {
-    offset_ += footer_encoding.size();
-  }
-  status_ = io_status_;
-
-  // After this, call to the Finish in the index_builder
+  //   After this, call to the Finish in the index_builder
   index_builder_->Finish();
 
   return status_;

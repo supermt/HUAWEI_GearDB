@@ -15,7 +15,7 @@
 
 #include "db/dbformat.h"
 #include "file/random_access_file_reader.h"
-#include "gear_table_coding.h"
+#include "gear_table_file_reader.h"
 #include "gear_table_index.h"
 #include "memory/arena.h"
 #include "rocksdb/env.h"
@@ -40,6 +40,7 @@ class TableReader;
 class InternalKeyComparator;
 class GearTableKeyDecoder;
 class GetContext;
+class GearTableFileReader;
 
 extern const uint32_t kGearTableFixedKeyLength;
 extern const uint32_t kGearTableFixedValueLength;
@@ -132,6 +133,7 @@ class GearTableReader : public TableReader {
   const SliceTransform* prefix_extractor_;
 
   static const size_t kNumInternalBytes = 8;
+  uint64_t entry_counts_in_file_;
 
   GearTableReaderFileInfo file_info_;
   Arena arena_;
@@ -181,12 +183,11 @@ class GearTableReader : public TableReader {
   friend class TableCache;
   friend class GearTableIterator;
 
-  Status Next(GearTableKeyDecoder* decoder, uint32_t* offset,
-              ParsedInternalKey* parsed_key, Slice* internal_key, Slice* value,
+  Status Next(uint32_t* offset, ParsedInternalKey* parsed_key,
+              Slice* internal_key, Slice* value,
               bool* seekable = nullptr) const;
 
-  Status GetOffset(GearTableKeyDecoder* decoder, const Slice& target,
-                   uint32_t* offset) const;
+  Status GetOffset(const Slice& target, uint32_t* offset) const;
 
   bool IsTotalOrderMode() const { return (prefix_extractor_ == nullptr); }
 

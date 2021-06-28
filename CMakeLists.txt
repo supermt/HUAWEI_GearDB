@@ -719,12 +719,11 @@ set(SOURCES
         table/plain/plain_table_key_coding.cc
         table/plain/plain_table_reader.cc
         table/gear_block/btree_index/persistent_btree.cc
-        table/gear_block/btree_index/memory_page.cc
         table/gear_block/gear_table_builder.cc
         table/gear_block/gear_table_factory.cc
         table/gear_block/gear_table_reader.cc
         table/gear_block/gear_table_index.cc
-        table/gear_block/gear_table_coding.cc
+        table/gear_block/gear_table_file_reader.cc
         table/sst_file_reader.cc
         table/sst_file_writer.cc
         table/table_properties.cc

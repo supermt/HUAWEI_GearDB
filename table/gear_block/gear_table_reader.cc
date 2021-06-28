@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "db/dbformat.h"
-#include "gear_table_coding.h"
+#include "gear_table_file_reader.h"
 #include "gear_table_index.h"
 #include "memory/arena.h"
 #include "monitoring/histogram.h"
@@ -77,10 +77,12 @@ class GearTableIterator : public InternalIterator {
   Status status() const override;
 
  private:
-  GearTableReader* table_;
-  GearTableKeyDecoder decoder_;
-  uint32_t offset_;
-  uint32_t next_offset_;
+  GearTableFileReader* file_reader_;
+  uint64_t visited_key_counts_;
+  uint64_t total_entry_count;
+  // we don't need the next_key, since it's just the visited + 1;
+  //  uint32_t offset_;
+  //  uint32_t next_offset_;
   Slice key_;
   Slice value_;
   Status status_;
@@ -107,28 +109,10 @@ GearTableReader::GearTableReader(const ImmutableCFOptions& ioptions,
       file_size_(file_size),
       attached_index_file_size_(file_size),
       table_properties_(nullptr) {
-  auto ori_file_name =
-      file->file_name();  // it should be like
-                          // /media/jinghuan/nvme/huawei_test//01234.sst
-  std::string index_file_name =
-      GearTableIndexReader::find_the_index_by_file_name(ioptions,
-                                                        ori_file_name);
-  //  file_info_.gear_index_file_name = index_file_name;
-  //  std::unique_ptr<FSRandomAccessFile> index_file;
-  //  uint64_t index_file_size;
-  //  auto s = ioptions.fs->NewRandomAccessFile(
-  //      index_file_name, FileOptions(storage_options), &index_file, nullptr);
-  //
-  //  s = ioptions.fs->GetFileSize(index_file_name, IOOptions(),
-  //  &index_file_size,
-  //                               nullptr);
-  //  assert(s.ok());
-  //  std::unique_ptr<RandomAccessFileReader> index_file_reader(
-  //      new RandomAccessFileReader(std::move(index_file), index_file_name));
-  //  file_info_.attached_index_file = std::move(index_file_reader);
-  //  if (attached_index_file_size_ == 0) {
-  //    attached_index_file_size_ = index_file_size;
-  //  }
+  file_reader_ =
+      new GearTableFileReader(internal_comparator_, &file_info_, file_size);
+  entry_counts_in_file_ = file_reader_->GetEntryCount();
+  assert(entry_counts_in_file_ > 0);
 }
 
 const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
@@ -165,7 +149,6 @@ Status GearTableReader::Open(const ImmutableCFOptions& ioptions,
   auto& user_props = props->user_collected_properties;
   // this should be empty
   auto prefix_extractor_in_file = props->prefix_extractor_name;
-  assert(prefix_extractor_in_file == nullptr);
 
   EncodingType encoding_type = kPlain;
   auto encoding_type_prop =
@@ -233,8 +216,7 @@ Status GearTableReader::MmapDataIfNeeded() {
   return Status::OK();
 }
 
-Status GearTableReader::GetOffset(GearTableKeyDecoder* decoder,
-                                  const Slice& target, uint32_t* offset) const {
+Status GearTableReader::GetOffset(const Slice& target, uint32_t* offset) const {
   // the target is the search target, we don't need the prefix
   auto search_result = index_.GetOffset(target, offset);
   if (search_result == GearTableIndexReader::kNotFound) {
@@ -256,9 +238,9 @@ Status GearTableReader::GetOffset(GearTableKeyDecoder* decoder,
   // we have the btree as the index, so we don't need the binary search.
 }
 
-Status GearTableReader::Next(GearTableKeyDecoder* decoder, uint32_t* offset,
-                             ParsedInternalKey* parsed_key, Slice* internal_key,
-                             Slice* value, bool* seekable) const {
+Status GearTableReader::Next(uint32_t* offset, ParsedInternalKey* parsed_key,
+                             Slice* internal_key, Slice* value,
+                             bool* seekable) const {
   if (*offset == file_info_.data_end_offset) {
     *offset = file_info_.data_end_offset;
     return Status::OK();
@@ -269,8 +251,8 @@ Status GearTableReader::Next(GearTableKeyDecoder* decoder, uint32_t* offset,
   }
 
   uint32_t bytes_read;
-  Status s = decoder->NextKey(*offset, parsed_key, internal_key, value,
-                              &bytes_read, seekable);
+  Status s = file_reader_->NextKey(*offset, parsed_key, internal_key, value,
+                                   &bytes_read, seekable);
   if (!s.ok()) {
     return s;
   }
@@ -302,53 +284,57 @@ uint64_t GearTableReader::ApproximateSize(const Slice& /*start*/,
 }
 
 GearTableIterator::GearTableIterator(GearTableReader* table)
-    : table_(table),
-      decoder_(&table_->file_info_, table_->encoding_type_,
-               table_->user_key_len_, table_->prefix_extractor_) {
-  next_offset_ = offset_ = table_->file_info_.data_end_offset;
+    : file_reader_(table->file_reader_), visited_key_counts_(0) {
+  total_entry_count = file_reader_->GetEntryCount();
 }
 
 GearTableIterator::~GearTableIterator() {}
 
 bool GearTableIterator::Valid() const {
-  return offset_ < table_->file_info_.data_end_offset &&
-         offset_ >= table_->data_start_offset_;
+  return visited_key_counts_ < total_entry_count &&
+         visited_key_counts_ >= file_reader_->EntryCountStartPosition();
 }
 
 void GearTableIterator::SeekToFirst() {
   status_ = Status::OK();
-  next_offset_ = table_->data_start_offset_;
-  if (next_offset_ >= table_->file_info_.data_end_offset) {
-    next_offset_ = offset_ = table_->file_info_.data_end_offset;
-  } else {
-    Next();
-  }
+  visited_key_counts_ = file_reader_->EntryCountStartPosition();
+  Next();
 }
 
 void GearTableIterator::SeekToLast() {
-  assert(false);
-  status_ = Status::NotSupported("SeekToLast() is not supported in GearTable");
-  next_offset_ = offset_ = table_->file_info_.data_end_offset;
+  //  assert(false);
+  //  status_ = Status::NotSupported("SeekToLast() is not supported in
+  //  GearTable");
+  // actually, we support this kind of operations.
+  visited_key_counts_ = total_entry_count - 1;
+  // save one a position for the last call to Next()
+  Next();
+  // we seek to the last position of the key array.
 }
 
 void GearTableIterator::Seek(const Slice& target) {
   // don't need to check the scan mode
-  status_ = table_->GetOffset(&decoder_, target, &next_offset_);
+  // for the iterator, we don't need the index, we use the file itself.
+
+  // read the current key first.
+  ParsedInternalKey parsedKey;
+  status_ =
+      file_reader_->GetKey(visited_key_counts_, &parsedKey, &key_, &value_);
   if (!status_.ok()) {
-    offset_ = next_offset_ = table_->file_info_.data_end_offset;
+    visited_key_counts_ = total_entry_count;
     return;
   }
-  if (next_offset_ < table_->file_info_.data_end_offset) {
+  if (visited_key_counts_ < total_entry_count) {
     // target not founded, but no errors.
     for (Next(); status_.ok() && Valid(); Next()) {
       // search forward
-      if (table_->internal_comparator_.Compare(key(), target) >= 0) {
+      if (file_reader_->internal_comparator_.Compare(key(), target) >= 0) {
         // not founded
         break;
       }
     }
   } else {
-    offset_ = table_->file_info_.data_end_offset;
+    visited_key_counts_ = total_entry_count;
   }
   // the table reader will search through the index
 }
@@ -356,23 +342,27 @@ void GearTableIterator::Seek(const Slice& target) {
 void GearTableIterator::SeekForPrev(const Slice& /*target*/) {
   assert(false);
   status_ = Status::NotSupported("SeekForPrev() is not supported in GearTable");
-  offset_ = next_offset_ = table_->file_info_.data_end_offset;
 }
 
 void GearTableIterator::Next() {
-  offset_ = next_offset_;
-  if (offset_ < table_->file_info_.data_end_offset) {
+  visited_key_counts_++;
+  if (visited_key_counts_ < total_entry_count) {
     Slice tmp_slice;
     ParsedInternalKey parsed_key;
     status_ =
-        table_->Next(&decoder_, &next_offset_, &parsed_key, &key_, &value_);
+        file_reader_->GetKey(visited_key_counts_, &parsed_key, &key_, &value_);
     if (!status_.ok()) {
-      offset_ = next_offset_ = table_->file_info_.data_end_offset;
+      visited_key_counts_ = total_entry_count;
     }
   }
 }
 
-void GearTableIterator::Prev() { assert(false); }
+void GearTableIterator::Prev() {
+  visited_key_counts_--;
+  if (visited_key_counts_ < file_reader_->EntryCountStartPosition()) {
+    visited_key_counts_ = file_reader_->EntryCountStartPosition();
+  }
+}
 
 Slice GearTableIterator::key() const {
   assert(Valid());

@@ -7,10 +7,6 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <env/io_posix.h>
-#include <rocksdb/file_system.h>
-#include <rocksdb/io_status.h>
-
 #include <string>
 #include <vector>
 
@@ -18,6 +14,7 @@
 #include "memory/arena.h"
 #include "monitoring/histogram.h"
 #include "options/cf_options.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
 #include "table/gear_block/btree_index/persistent_btree.h"
 
@@ -41,11 +38,11 @@ class GearTableIndexReader {
       token = ori_file_name.substr(0, pos);
       ori_file_name.erase(0, pos + delimiter.length());
     }
-    return (index_dir + token);
+    return (index_dir + delimiter + ori_file_name);
   }
 
   explicit GearTableIndexReader(std::string index_file_name) {
-    btree_open(btree, index_file_name.c_str());
+    //    btree_open(&btree, index_file_name.c_str());
   }
 
   IndexSearchResult GetOffset(Slice key, uint32_t* target_offset) const;
@@ -56,8 +53,10 @@ class GearTableIndexReader {
   static const size_t kOffsetLen = sizeof(uint32_t);
 
  private:
+  //  struct BtreeType : google_btree::
+ private:
   uint32_t index_size_;
-  BTree* btree;
+    BTree btree;
 };
 
 // the gear table index builder will create a Btree and save it into the file.
@@ -69,7 +68,7 @@ class GearTableIndexBuilder {
     std::string index_file_name =
         GearTableIndexReader::find_the_index_by_file_name(ioptions_,
                                                           ori_filename);
-    int open_result = btree_open(btree, index_file_name.c_str());
+    int open_result = btree_creat(&btree, index_file_name.c_str());
     assert(open_result != -1);
   }
 
@@ -82,7 +81,7 @@ class GearTableIndexBuilder {
   static const std::string kGearTableIndexBlock;
 
  private:
-  BTree* btree;
+  BTree btree;
 
   Arena* arena_;
   const ImmutableCFOptions ioptions_;

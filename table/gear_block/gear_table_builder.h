@@ -16,7 +16,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
-#include "table/gear_block/gear_table_coding.h"
+#include "table/gear_block/gear_table_file_reader.h"
 #include "table/gear_block/gear_table_index.h"
 #include "table/plain/plain_table_bloom.h"
 #include "table/plain/plain_table_index.h"
@@ -53,7 +53,7 @@ class GearTableBuilder : public TableBuilder {
   GearTableBuilder(const GearTableBuilder&) = delete;
   void operator=(const GearTableBuilder&) = delete;
 
-  static uint32_t CalculateHeaderSize() { return 2 * (sizeof(uint32_t)); };
+  static uint32_t CalculateHeaderSize() { return 4 * (sizeof(uint32_t)); };
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~GearTableBuilder() override;
 
