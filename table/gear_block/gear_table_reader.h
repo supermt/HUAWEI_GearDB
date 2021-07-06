@@ -190,6 +190,10 @@ class GearTableReader : public TableReader {
   // No copying allowed
   explicit GearTableReader(const TableReader&) = delete;
   void operator=(const TableReader&) = delete;
+  static Status ReadProperties(RandomAccessFileReader* file, uint64_t file_size,
+                               const ImmutableCFOptions& ioptions,
+                               TableProperties** properties);
+  static const int table_prop_size = 13;
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

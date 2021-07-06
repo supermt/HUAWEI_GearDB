@@ -98,7 +98,7 @@ void GearTableBuilder::FlushDataBlock() {
   PutFixed32(&block_header_buffer, page_entry_count);
 
   assert(current_key_length == block_key_buffer.size());
-  assert(current_key_length == block_value_buffer.size());
+  assert(current_value_length == block_value_buffer.size());
 
   PutFixed32(&block_value_buffer, (uint32_t)block_value_buffer.size());
   PutFixed32(&block_value_buffer, (uint32_t)block_key_buffer.size());
@@ -218,13 +218,14 @@ Status GearTableBuilder::Finish() {
   PutFixed64(&meta_block, properties_.file_creation_time);
 
   assert(meta_block.size() == GearTableFileReader::meta_page_size);
-
-  file_->Append(meta_block);
-  file_->Flush();
-
+  io_status_ = file_->Append(meta_block);
+  assert(io_status_.ok());
   //   After this, call to the Finish in the index_builder
   index_builder_->Finish();
-
+  if (io_status_.ok()) {
+    offset_ += meta_block.size();
+  }
+  status_ = io_status_;
   return status_;
 }
 

@@ -186,10 +186,9 @@ Status GearTableFileReader::ReadMetaData() {
   Slice read_result;
   int file_offset = file_size_ - meta_page_size;
   int size_to_read = meta_page_size;
-  Buffer* temp_buffer = new Buffer();
+  char buffer[200];
   s = file_info_->file.get()->Read(IOOptions(), file_offset, size_to_read,
-                                   &read_result, temp_buffer->buf.get(),
-                                   nullptr);
+                                   &read_result, buffer, nullptr);
   assert(read_result.size() == meta_page_size);
 
   GetFixed64(&read_result, &(meta_infos.num_data_blocks));
@@ -205,8 +204,6 @@ Status GearTableFileReader::ReadMetaData() {
   GetFixed64(&read_result, &(meta_infos.creation_time));
   GetFixed64(&read_result, &(meta_infos.oldest_key_time));
   GetFixed64(&read_result, &(meta_infos.file_creation_time));
-
-  delete temp_buffer;
 
   return Status(s);
 }

@@ -7,6 +7,8 @@
 
 #include "table/gear_block/gear_table_reader.h"
 
+#include <unistd.h>
+
 #include <string>
 #include <vector>
 
@@ -34,7 +36,6 @@
 #include "util/hash.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
@@ -120,6 +121,40 @@ const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 
 GearTableReader::~GearTableReader() {}
 
+Status GearTableReader::ReadProperties(RandomAccessFileReader* file,
+                                       uint64_t file_size,
+                                       const ImmutableCFOptions& ioptions,
+                                       TableProperties** properties) {
+  Status s;
+  Slice table_prop_blocks;
+  AlignedBuffer buffer_;
+  // TODO: pass the for_compaction parameter in
+  int read_size = GearTableFileReader::meta_page_size;
+  char data_buffer[200];
+  s = file->Read(IOOptions(), file_size - read_size, read_size,
+                 &table_prop_blocks, data_buffer, nullptr);
+  if (!s.ok()) {
+    return s;
+  }
+  // we have a fixed length of
+  auto new_prop = new TableProperties();
+  *properties = new_prop;
+  GetFixed64(&table_prop_blocks, &new_prop->num_data_blocks);
+  GetFixed64(&table_prop_blocks, &new_prop->raw_key_size);
+  GetFixed64(&table_prop_blocks, &new_prop->raw_value_size);
+  GetFixed64(&table_prop_blocks, &new_prop->data_size);
+  GetFixed64(&table_prop_blocks, &new_prop->index_size);
+  GetFixed64(&table_prop_blocks, &new_prop->num_entries);
+  GetFixed64(&table_prop_blocks, &new_prop->num_deletions);
+  GetFixed64(&table_prop_blocks, &new_prop->num_merge_operands);
+  GetFixed64(&table_prop_blocks, &new_prop->num_range_deletions);
+  GetFixed64(&table_prop_blocks, &new_prop->format_version);
+  GetFixed64(&table_prop_blocks, &new_prop->creation_time);
+  GetFixed64(&table_prop_blocks, &new_prop->oldest_key_time);
+  GetFixed64(&table_prop_blocks, &new_prop->file_creation_time);
+  return s;
+}
+
 Status GearTableReader::Open(const ImmutableCFOptions& ioptions,
                              const EnvOptions& env_options,
                              const InternalKeyComparator& internal_comparator,
@@ -136,9 +171,12 @@ Status GearTableReader::Open(const ImmutableCFOptions& ioptions,
   TableProperties* props_ptr = nullptr;
 
   // for now, gear table won't compress the data block
-  auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                               ioptions, &props_ptr,
-                               true /* compression_type_missing */);
+  //  auto s = ReadTableProperties(file.get(), file_size,
+  //  kPlainTableMagicNumber,
+  //                               ioptions, &props_ptr,
+  //                               true /* compression_type_missing */);
+  auto s = GearTableReader::ReadProperties(file.get(), file_size, ioptions,
+                                           &props_ptr);
 
   std::shared_ptr<TableProperties> props(props_ptr);
   if (!s.ok()) {
