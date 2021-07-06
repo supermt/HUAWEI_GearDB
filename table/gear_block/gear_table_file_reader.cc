@@ -240,11 +240,27 @@ Status GearTableFileReader::GetKey(uint64_t key_id,
     // free the previous data page
     data_pages.data_page_list[data_page_id - 1].FreeBuffer();
   }
-  if (blk_loaded) {
-  } else {
+  Status s;
+  if (!blk_loaded) {
     Slice raw_data;
     data_pages.data_page_list[data_page_id].GenerateFromSlice(&raw_data);
   }
+  Slice temp_slice =
+      data_pages.data_page_list[data_page_id].key_array_[in_lbk_offset];
+  *internalKey = temp_slice;
+  //  if (temp_slice[GearTableFactory::kFixedKeyLength] ==
+  //      GearTableFactory::kValueTypeSeqId0) {
+  //    parsedKey->user_key = Slice(temp_slice.data(), temp_slice.size() - 1);
+  //    parsedKey->sequence = 0;
+  //    parsedKey->type = kTypeValue;
+  //  } else {
+  if (!ParseInternalKey(*internalKey, parsedKey)) {
+    return Status::Corruption(Slice("Corrected value while read the entry"));
+    //    }
+  }
+  
+  *value = Slice(
+      data_pages.data_page_list[data_page_id].value_array_[in_lbk_offset]);
 
   return Status::OK();
 }

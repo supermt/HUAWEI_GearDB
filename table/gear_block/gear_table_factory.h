@@ -48,6 +48,7 @@ class GearTableFactory : public TableFactory {
   const GearTableOptions& table_options() const;
 
   static const char kValueTypeSeqId0 = char(~0);
+  static const int kFixedKeyLength = int(15);
 
   // Sanitizes the specified DB Options.
   Status SanitizeOptions(
