@@ -183,10 +183,6 @@ class GearTableReader : public TableReader {
   friend class TableCache;
   friend class GearTableIterator;
 
-  Status Next(uint32_t* offset, ParsedInternalKey* parsed_key,
-              Slice* internal_key, Slice* value,
-              bool* seekable = nullptr) const;
-
   Status GetOffset(const Slice& target, uint32_t* offset) const;
 
   bool IsTotalOrderMode() const { return (prefix_extractor_ == nullptr); }

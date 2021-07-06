@@ -238,40 +238,6 @@ Status GearTableReader::GetOffset(const Slice& target, uint32_t* offset) const {
   // we have the btree as the index, so we don't need the binary search.
 }
 
-Status GearTableReader::Next(uint32_t* offset, ParsedInternalKey* parsed_key,
-                             Slice* internal_key, Slice* value,
-                             bool* seekable) const {
-  if (*offset == file_info_.data_end_offset) {
-    *offset = file_info_.data_end_offset;
-    return Status::OK();
-  }
-
-  if (*offset > file_info_.data_end_offset) {
-    return Status::Corruption("Offset is out of file size");
-  }
-
-  uint32_t bytes_read;
-  Status s = file_reader_->NextKey(*offset, parsed_key, internal_key, value,
-                                   &bytes_read, seekable);
-  if (!s.ok()) {
-    return s;
-  }
-  *offset = *offset + bytes_read;
-  return Status::OK();
-}
-
-void GearTableReader::Prepare(const Slice& target) {
-  // No need for calculating the prefix
-}
-
-Status GearTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
-                            GetContext* get_context,
-                            const SliceTransform* /* prefix_extractor */,
-                            bool /*skip_filters*/) {
-  // TODO: re-add the function Get()
-  return Status::OK();
-}
-
 uint64_t GearTableReader::ApproximateOffsetOf(const Slice& /*key*/,
                                               TableReaderCaller /*caller*/) {
   return 0;
@@ -281,6 +247,36 @@ uint64_t GearTableReader::ApproximateSize(const Slice& /*start*/,
                                           const Slice& /*end*/,
                                           TableReaderCaller /*caller*/) {
   return 0;
+}
+void GearTableReader::Prepare(const Slice& target) {
+  // This function is used to change the target into a bloom filter's prefix
+  return;
+}
+Status GearTableReader::Get(const ReadOptions& readOptions, const Slice& target,
+                            GetContext* get_context,
+                            const SliceTransform* prefix_extractor,
+                            bool skip_filters) {
+  // use the index to read the target value
+  assert(target.size() == user_key_len_ + 8);
+  uint32_t target_offset;
+  GearTableIndexReader::IndexSearchResult searchResult =
+      index_.GetOffset(target, &target_offset);
+  if (searchResult == GearTableIndexReader::kDirectToFile) {
+    // read to files
+    ParsedInternalKey parsed_target;
+    Slice result;
+    if (!ParseInternalKey(target, &parsed_target)) {
+      return Status::Corruption(std::string(target.data()) + "corrupted");
+    }
+
+    file_reader_->ReadValueByOffset(target_offset, target, &parsed_target,
+                                    &result);
+    bool dont_care __attribute__((__unused__));
+    get_context->SaveValue(parsed_target, result, &dont_care);
+    return Status::OK();
+  } else {
+    return Status::NotFound(target);
+  }
 }
 
 GearTableIterator::GearTableIterator(GearTableReader* table)

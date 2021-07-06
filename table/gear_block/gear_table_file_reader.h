@@ -63,15 +63,16 @@ class GearTableFileReader {
 
   const GearTableReaderFileInfo* file_info() { return file_info_; }
 
-//  Status NextKey(uint32_t offset, ParsedInternalKey* parsedKey,
-//                 Slice* internalKey, Slice* value, uint32_t* bytes_read,
-//                 bool* seekable);
+  //  Status NextKey(uint32_t offset, ParsedInternalKey* parsedKey,
+  //                 Slice* internalKey, Slice* value, uint32_t* bytes_read,
+  //                 bool* seekable);
 
   uint32_t FromKeyIdToBlockID(uint64_t key_id, uint32_t* in_blk_offset);
   Status LoadDataPage(uint32_t blk_id);
   Status GetKey(uint64_t key_id, ParsedInternalKey* parsedKey,
                 Slice* internalKey, Slice* value);
-
+  bool ReadValueByOffset(uint32_t offset, const Slice& target_slice,
+                         ParsedInternalKey* full_ikey, Slice* value);
   uint32_t FromOffsetToBlockID(uint32_t offset);
   typedef Slice value_record;
   typedef Slice key_record;
@@ -95,7 +96,7 @@ class GearTableFileReader {
     std::vector<value_record> value_array_;
     std::vector<key_record> key_array_;
     static bool ReadValueLen(Slice* raw_data, uint32_t offset, uint32_t* out,
-                      uint32_t* bytes_read);
+                             uint32_t* bytes_read);
   };
   struct DataPageContainer {
     DataPageContainer() : total_data_pages(0), data_page_list(0) {}

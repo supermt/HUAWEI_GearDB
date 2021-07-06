@@ -212,7 +212,7 @@ Status GearTableFileReader::ReadMetaData() {
 }
 uint32_t GearTableFileReader::FromOffsetToBlockID(uint32_t offset) {
   for (unsigned long i = 0; i < data_pages.data_page_list.size(); i++) {
-    if (data_pages.data_page_offset[i].first > offset) return i;
+    if (data_pages.data_page_offset[i].first >= offset) return i;
   }
   return -1;
 }
@@ -239,14 +239,13 @@ Status GearTableFileReader::GetKey(uint64_t key_id,
   uint32_t in_lbk_offset;
   uint32_t data_page_id = FromKeyIdToBlockID(key_id, &in_lbk_offset);
   bool blk_loaded = data_pages.data_page_list[data_page_id].key_array_.empty();
-  if (data_page_id > 0) {
-    // free the previous data page
+  if (data_page_id > 0 && in_lbk_offset == 0) {
+    // free the previous data page when we are accessing a key in new block
     data_pages.data_page_list[data_page_id - 1].FreeBuffer();
   }
   Status s;
   if (!blk_loaded) {
-    Slice raw_data;
-    data_pages.data_page_list[data_page_id].GenerateFromSlice(&raw_data);
+    LoadDataPage(data_page_id);
   }
   Slice temp_slice =
       data_pages.data_page_list[data_page_id].key_array_[in_lbk_offset];
@@ -281,7 +280,38 @@ Status GearTableFileReader::LoadDataPage(uint32_t blk_id) {
   } else {
     data_pages.data_page_list[blk_id].GenerateFromSlice(&raw_data);
   }
+  if (blk_id > 0) {
+    data_pages.data_page_list[blk_id - 1].FreeBuffer();
+  }
   return Status::OK();
+}
+bool GearTableFileReader::ReadValueByOffset(uint32_t offset,
+                                            const Slice& target_slice,
+                                            ParsedInternalKey* full_ikey,
+                                            Slice* value) {
+  Slice user_key = ExtractUserKey(target_slice);
+  auto blk_id = FromOffsetToBlockID(offset);
+  // search through the data page
+  if (data_pages.data_page_list[blk_id].key_array_.empty()) {
+    LoadDataPage(blk_id);
+  }  // remember to free the target entry
+
+  int key_id = 0;
+  bool founded = false;
+  for (auto full_key : data_pages.data_page_list[blk_id].key_array_) {
+    int compare_result =
+        internal_comparator_.Compare(user_key, ExtractUserKey(full_key));
+    if (compare_result >= 0) {
+      // full_key is larger than the user_key
+      founded = compare_result == 0;
+      break;
+    }
+    key_id++;
+  }
+  ParseInternalKey(data_pages.data_page_list[blk_id].key_array_[key_id],
+                   full_ikey);
+  *value = data_pages.data_page_list[blk_id].value_array_[key_id];
+  return founded;
 }
 
 bool GearTableFileReader::DataPage::ReadValueLen(Slice* raw_data,
