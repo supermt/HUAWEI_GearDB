@@ -125,7 +125,12 @@ bool GearTableFileReader::ReadVarint32NonMmap(uint32_t offset, uint32_t* out,
 // }
 void GearTableFileReader::DataPage::GenerateFromSlice(Slice* raw_data) {
   uint64_t offset = 0;
-  uint64_t key_offset = 0;
+  const int parsed_key_length = kGearTableFixedKeyLength + 8;
+  std::string key_zone = std::string(
+      raw_data->data() + raw_data->size() - parsed_key_length * entry_count_,
+      parsed_key_length * entry_count_);
+  std::reverse(key_zone.begin(), key_zone.end());
+  Slice key_slice = Slice(key_zone);
   for (uint32_t i = 0; i < entry_count_; i++) {
     uint32_t value_len;
     uint32_t vint32_length;
@@ -137,13 +142,11 @@ void GearTableFileReader::DataPage::GenerateFromSlice(Slice* raw_data) {
     value = Slice(raw_data->data() + offset, value_len);
     offset += value_len;
     value_array_.push_back(value);
-    key_offset++;
-    key = Slice(raw_data->data() + raw_data->size() -
-                key_offset * kGearTableFixedKeyLength);
+    key = Slice(key_slice.data() + i * parsed_key_length, parsed_key_length);
     key_array_.push_back(key);
   }
   // delete it after validate
-  assert(raw_data->size() == offset + key_offset * kGearTableFixedKeyLength);
+  assert(raw_data->size() == offset + key_slice.size());
 }
 Status GearTableFileReader::NextBlock(uint32_t offset,
                                       uint32_t* data_block_size) {
@@ -258,7 +261,7 @@ Status GearTableFileReader::GetKey(uint64_t key_id,
     return Status::Corruption(Slice("Corrected value while read the entry"));
     //    }
   }
-  
+
   *value = Slice(
       data_pages.data_page_list[data_page_id].value_array_[in_lbk_offset]);
 
