@@ -6,13 +6,13 @@
 #include "table/gear_block/gear_table_file_reader.h"
 
 #include <algorithm>
+#include <iostream>
 #include <string>
 
 #include "db/dbformat.h"
 #include "file/writable_file_writer.h"
 #include "table/gear_block/gear_table_factory.h"
 #include "table/gear_block/gear_table_reader.h"
-
 namespace ROCKSDB_NAMESPACE {
 
 enum GearTableEntryType : unsigned char {
@@ -124,29 +124,34 @@ bool GearTableFileReader::ReadVarint32NonMmap(uint32_t offset, uint32_t* out,
 //   return Status();
 // }
 void GearTableFileReader::DataPage::GenerateFromSlice(Slice* raw_data) {
-  uint64_t offset = 0;
+  uint64_t offset = 0;  // skip the first 16 bytes, it's the meta
+  uint64_t key_offset = 0;
   const int parsed_key_length = kGearTableFixedKeyLength + 8;
-  std::string key_zone = std::string(
-      raw_data->data() + raw_data->size() - parsed_key_length * entry_count_,
-      parsed_key_length * entry_count_);
-  std::reverse(key_zone.begin(), key_zone.end());
-  Slice key_slice = Slice(key_zone);
+
+  std::string reversed_data =
+      Slice(&raw_data->data()[value_array_length_], key_array_length_)
+          .ToString();
+
+  //  std::reverse(reversed_data.begin(), reversed_data.end());
+  key_data = Slice(reversed_data);
+  Slice key_slice = Slice(reversed_data);
+  ParsedInternalKey temp;
+  key_array_.clear();
+  value_array_.clear();
   for (uint32_t i = 0; i < entry_count_; i++) {
     uint32_t value_len;
     uint32_t vint32_length;
     Slice value;
-    Slice key;
     // read the value first.
     ReadValueLen(raw_data, offset, &value_len, &vint32_length);
     offset += vint32_length;
     value = Slice(raw_data->data() + offset, value_len);
     offset += value_len;
-    value_array_.push_back(value);
-    key = Slice(key_slice.data() + i * parsed_key_length, parsed_key_length);
-    key_array_.push_back(key);
+    value_array_.push_back(value.ToString());
+    Slice key = Slice(key_slice.data() + key_offset, parsed_key_length);
+    key_array_.push_back(key.ToString());
+    key_offset += parsed_key_length;
   }
-  // delete it after validate
-  assert(raw_data->size() == offset + key_slice.size());
 }
 Status GearTableFileReader::NextBlock(uint32_t offset,
                                       uint32_t* data_block_size) {
@@ -161,11 +166,14 @@ Status GearTableFileReader::NextBlock(uint32_t offset,
   entry_count = header_fields[1];
   value_array_length = header_fields[2];
   key_array_length = header_fields[3];
-  data_pages.data_page_list.emplace_back(entry_count, data_block_num);
+  data_pages.data_page_list.emplace_back(data_block_num, entry_count,
+                                         key_array_length, value_array_length);
   data_pages.data_page_offset.emplace_back(
-      offset, value_array_length + key_array_length);
+      offset + header_field_num * sizeof(uint32_t),
+      value_array_length + key_array_length);
   *data_block_size = value_array_length + key_array_length +
                      header_field_num * sizeof(uint32_t);
+  data_pages.total_data_pages++;
   return Status();
 }
 
@@ -232,7 +240,7 @@ Status GearTableFileReader::GetKey(uint64_t key_id,
   assert(key_id < meta_infos.num_entries);
   uint32_t in_lbk_offset;
   uint32_t data_page_id = FromKeyIdToBlockID(key_id, &in_lbk_offset);
-  bool blk_loaded = data_pages.data_page_list[data_page_id].key_array_.empty();
+  bool blk_loaded = !data_pages.data_page_list[data_page_id].key_array_.empty();
   if (data_page_id > 0 && in_lbk_offset == 0) {
     // free the previous data page when we are accessing a key in new block
     data_pages.data_page_list[data_page_id - 1].FreeBuffer();
@@ -242,17 +250,11 @@ Status GearTableFileReader::GetKey(uint64_t key_id,
     LoadDataPage(data_page_id);
   }
   Slice temp_slice =
-      data_pages.data_page_list[data_page_id].key_array_[in_lbk_offset];
+      Slice(data_pages.data_page_list[data_page_id].key_array_[in_lbk_offset]);
+
   *internalKey = temp_slice;
-  //  if (temp_slice[GearTableFactory::kFixedKeyLength] ==
-  //      GearTableFactory::kValueTypeSeqId0) {
-  //    parsedKey->user_key = Slice(temp_slice.data(), temp_slice.size() - 1);
-  //    parsedKey->sequence = 0;
-  //    parsedKey->type = kTypeValue;
-  //  } else {
   if (!ParseInternalKey(*internalKey, parsedKey)) {
     return Status::Corruption(Slice("Corrected value while read the entry"));
-    //    }
   }
 
   *value = Slice(
@@ -273,9 +275,6 @@ Status GearTableFileReader::LoadDataPage(uint32_t blk_id) {
     return Status::Corruption("data page fault");
   } else {
     data_pages.data_page_list[blk_id].GenerateFromSlice(&raw_data);
-  }
-  if (blk_id > 0) {
-    data_pages.data_page_list[blk_id - 1].FreeBuffer();
   }
   return Status::OK();
 }
@@ -306,6 +305,15 @@ bool GearTableFileReader::ReadValueByOffset(uint32_t offset,
                    full_ikey);
   *value = data_pages.data_page_list[blk_id].value_array_[key_id];
   return founded;
+}
+Status GearTableFileReader::MmapDataIfNeeded() {
+  if (file_info_->is_mmap_mode) {
+    // Get mmapped memory.
+    return file_info_->file->Read(IOOptions(), 0,
+                                  static_cast<size_t>(file_size_),
+                                  &file_info_->file_data, nullptr, nullptr);
+  }
+  return Status::OK();
 }
 
 bool GearTableFileReader::DataPage::ReadValueLen(Slice* raw_data,

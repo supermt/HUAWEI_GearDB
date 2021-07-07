@@ -8,6 +8,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <array>
+#include <iostream>
 
 #include "db/dbformat.h"
 #include "rocksdb/slice.h"
@@ -20,13 +21,28 @@ struct ParsedInternalKey;
 struct GearTableReaderFileInfo;
 enum GearTableEntryType : unsigned char;
 
+struct GearTableReaderFileInfo {
+  bool is_mmap_mode;
+  Slice file_data;
+  uint32_t data_end_offset;
+  std::unique_ptr<RandomAccessFileReader> file;
+  GearTableReaderFileInfo(std::unique_ptr<RandomAccessFileReader>&& _file,
+                          const EnvOptions& storage_options,
+                          uint32_t _data_size_offset)
+      : is_mmap_mode(storage_options.use_mmap_reads),
+        data_end_offset(_data_size_offset),
+        file(std::move(_file)) {}
+};
+
 class GearTableFileReader {
  public:
   explicit GearTableFileReader(const InternalKeyComparator& internal_comparator,
-                               const GearTableReaderFileInfo* _file_info,
-                               uint64_t file_size)
+                               std::unique_ptr<RandomAccessFileReader>&& file,
+                               const EnvOptions& storage_options,
+                               const uint32_t data_size, uint64_t file_size)
       : internal_comparator_(internal_comparator),
-        file_info_(_file_info),
+        file_info_(new GearTableReaderFileInfo(std::move(file), storage_options,
+                                               data_size)),
         num_buf_(0),
         file_size_(file_size) {
     this->ReadMetaData();
@@ -64,8 +80,6 @@ class GearTableFileReader {
 
   Status status() const { return status_; }
 
-  const GearTableReaderFileInfo* file_info() { return file_info_; }
-
   //  Status NextKey(uint32_t offset, ParsedInternalKey* parsedKey,
   //                 Slice* internalKey, Slice* value, uint32_t* bytes_read,
   //                 bool* seekable);
@@ -88,16 +102,22 @@ class GearTableFileReader {
     //          entry_count_(source.entry_count_),
     //          value_array_(source.value_array_),
     //          key_array_(source.key_array_) {}
-    DataPage(uint32_t data_block_num, uint32_t entry_count)
+    DataPage(uint32_t data_block_num, uint32_t entry_count,
+             uint32_t key_array_length, uint32_t value_array_length)
         : data_block_num_(data_block_num),
           entry_count_(entry_count),
           value_array_(0),
-          key_array_(0) {}
+          key_array_(0),
+          key_array_length_(key_array_length),
+          value_array_length_(value_array_length) {}
     void FreeBuffer();
     uint32_t data_block_num_;
     uint32_t entry_count_;
-    std::vector<value_record> value_array_;
-    std::vector<key_record> key_array_;
+    std::vector<std::string> value_array_;
+    std::vector<std::string> key_array_;
+    uint32_t key_array_length_;
+    uint32_t value_array_length_;
+    Slice key_data;
     static bool ReadValueLen(Slice* raw_data, uint32_t offset, uint32_t* out,
                              uint32_t* bytes_read);
   };
@@ -115,8 +135,10 @@ class GearTableFileReader {
 
   const InternalKeyComparator internal_comparator_;
 
+  Status MmapDataIfNeeded();
+
  private:
-  const GearTableReaderFileInfo* file_info_;
+  std::unique_ptr<GearTableReaderFileInfo> file_info_;
   struct Buffer {
     Buffer() : buf_start_offset(0), buf_len(0), buf_capacity(0) {}
     std::unique_ptr<char[]> buf;

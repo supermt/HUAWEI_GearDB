@@ -45,24 +45,6 @@ class GearTableFileReader;
 extern const uint32_t kGearTableFixedKeyLength;
 extern const uint32_t kGearTableFixedValueLength;
 
-struct GearTableReaderFileInfo {
-  bool is_mmap_mode;
-  Slice file_data;
-  uint32_t data_end_offset;
-  std::unique_ptr<RandomAccessFileReader> file;
-  //  std::unique_ptr<RandomAccessFileReader> attached_index_file;
-  //  std::string gear_index_file_name;
-
-  GearTableReaderFileInfo(std::unique_ptr<RandomAccessFileReader>&& _file,
-                          const EnvOptions& storage_options,
-                          uint32_t _data_size_offset)
-      : is_mmap_mode(storage_options.use_mmap_reads),
-        data_end_offset(_data_size_offset),
-        file(std::move(_file))
-  //        attached_index_file(nullptr)
-  {}
-};
-
 class GearTableReader : public TableReader {
  public:
   static Status Open(const ImmutableCFOptions& ioptions,
@@ -135,7 +117,6 @@ class GearTableReader : public TableReader {
   static const size_t kNumInternalBytes = 8;
   uint64_t entry_counts_in_file_;
 
-  GearTableReaderFileInfo file_info_;
   Arena arena_;
 
   const ImmutableCFOptions& ioptions_;

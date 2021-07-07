@@ -78,7 +78,7 @@ class GearTableIterator : public InternalIterator {
   Status status() const override;
 
  private:
-  GearTableFileReader* file_reader_;
+  GearTableReader* table_;
   uint64_t visited_key_counts_;
   uint64_t total_entry_count;
   // we don't need the next_key, since it's just the visited + 1;
@@ -104,14 +104,17 @@ GearTableReader::GearTableReader(const ImmutableCFOptions& ioptions,
       prefix_extractor_(prefix_extractor),
       //      enable_bloom_(false),
       //      bloom_(6),
-      file_info_(std::move(file), storage_options,
-                 static_cast<uint32_t>(table_properties->data_size)),
+      //      file_info_(new GearTableReaderFileInfo(
+      //          std::move(file), storage_options,
+      //          static_cast<uint32_t>(table_properties->data_size))),
       ioptions_(ioptions),
       file_size_(file_size),
       attached_index_file_size_(file_size),
       table_properties_(nullptr) {
-  file_reader_ =
-      new GearTableFileReader(internal_comparator_, &file_info_, file_size);
+  file_reader_ = new GearTableFileReader(
+      internal_comparator_, std::move(file), storage_options,
+      static_cast<uint32_t>(table_properties->data_size), file_size);
+
   entry_counts_in_file_ = file_reader_->GetEntryCount();
   assert(entry_counts_in_file_ > 0);
 }
@@ -214,9 +217,9 @@ Status GearTableReader::Open(const ImmutableCFOptions& ioptions,
   // PopulateIndex can add to the props, so don't store them until now
   new_reader->table_properties_ = props;
 
-  if (immortal_table && new_reader->file_info_.is_mmap_mode) {
-    new_reader->dummy_cleanable_.reset(new Cleanable());
-  }
+  //  if (immortal_table && new_reader->file_info_.is_mmap_mode) {
+  //    new_reader->dummy_cleanable_.reset(new Cleanable());
+  //  }
 
   *table_reader = std::move(new_reader);
   return s;
@@ -244,15 +247,15 @@ InternalIterator* GearTableReader::NewIterator(
   }
 }
 
-Status GearTableReader::MmapDataIfNeeded() {
-  if (file_info_.is_mmap_mode) {
-    // Get mmapped memory.
-    return file_info_.file->Read(IOOptions(), 0,
-                                 static_cast<size_t>(file_size_),
-                                 &file_info_.file_data, nullptr, nullptr);
-  }
-  return Status::OK();
-}
+// Status GearTableReader::MmapDataIfNeeded() {
+//   if (file_info_.is_mmap_mode) {
+//     // Get mmapped memory.
+//     return file_info_.file->Read(IOOptions(), 0,
+//                                  static_cast<size_t>(file_size_),
+//                                  &file_info_.file_data, nullptr, nullptr);
+//   }
+//   return Status::OK();
+// }
 
 Status GearTableReader::GetOffset(const Slice& target, uint32_t* offset) const {
   // the target is the search target, we don't need the prefix
@@ -316,23 +319,31 @@ Status GearTableReader::Get(const ReadOptions& readOptions, const Slice& target,
     return Status::NotFound(target);
   }
 }
+Status GearTableReader::MmapDataIfNeeded() {
+  return file_reader_->MmapDataIfNeeded();
+}
 
-GearTableIterator::GearTableIterator(GearTableReader* table)
-    : file_reader_(table->file_reader_), visited_key_counts_(0) {
-  total_entry_count = file_reader_->GetEntryCount();
+GearTableIterator::GearTableIterator(GearTableReader* table) : table_(table) {
+  total_entry_count = table->file_reader_->GetEntryCount();
+  visited_key_counts_ = total_entry_count;
+  //  Next();
 }
 
 GearTableIterator::~GearTableIterator() {}
 
 bool GearTableIterator::Valid() const {
   return visited_key_counts_ < total_entry_count &&
-         visited_key_counts_ >= file_reader_->EntryCountStartPosition();
+         visited_key_counts_ >= table_->file_reader_->EntryCountStartPosition();
 }
 
 void GearTableIterator::SeekToFirst() {
   status_ = Status::OK();
-  visited_key_counts_ = file_reader_->EntryCountStartPosition();
-  Next();
+  visited_key_counts_ = table_->file_reader_->EntryCountStartPosition();
+  if (visited_key_counts_ >= table_->file_reader_->GetEntryCount()) {
+    visited_key_counts_ = table_->file_reader_->GetEntryCount();
+  } else {
+    Next();
+  }
 }
 
 void GearTableIterator::SeekToLast() {
@@ -352,8 +363,8 @@ void GearTableIterator::Seek(const Slice& target) {
 
   // read the current key first.
   ParsedInternalKey parsedKey;
-  status_ =
-      file_reader_->GetKey(visited_key_counts_, &parsedKey, &key_, &value_);
+  status_ = table_->file_reader_->GetKey(visited_key_counts_, &parsedKey, &key_,
+                                         &value_);
   if (!status_.ok()) {
     visited_key_counts_ = total_entry_count;
     return;
@@ -362,7 +373,8 @@ void GearTableIterator::Seek(const Slice& target) {
     // target not founded, but no errors.
     for (Next(); status_.ok() && Valid(); Next()) {
       // search forward
-      if (file_reader_->internal_comparator_.Compare(key(), target) >= 0) {
+      if (table_->file_reader_->internal_comparator_.Compare(key(), target) >=
+          0) {
         // not founded
         break;
       }
@@ -379,22 +391,22 @@ void GearTableIterator::SeekForPrev(const Slice& /*target*/) {
 }
 
 void GearTableIterator::Next() {
-  visited_key_counts_++;
   if (visited_key_counts_ < total_entry_count) {
     Slice tmp_slice;
     ParsedInternalKey parsed_key;
-    status_ =
-        file_reader_->GetKey(visited_key_counts_, &parsed_key, &key_, &value_);
+    status_ = table_->file_reader_->GetKey(visited_key_counts_, &parsed_key,
+                                           &key_, &value_);
     if (!status_.ok()) {
       visited_key_counts_ = total_entry_count;
     }
   }
+  visited_key_counts_++;
 }
 
 void GearTableIterator::Prev() {
   visited_key_counts_--;
-  if (visited_key_counts_ < file_reader_->EntryCountStartPosition()) {
-    visited_key_counts_ = file_reader_->EntryCountStartPosition();
+  if (visited_key_counts_ < table_->file_reader_->EntryCountStartPosition()) {
+    visited_key_counts_ = table_->file_reader_->EntryCountStartPosition();
   }
 }
 
