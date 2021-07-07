@@ -152,14 +152,10 @@ Status GearTableFileReader::NextBlock(uint32_t offset,
                                       uint32_t* data_block_size) {
   uint32_t header_fields[4] = {0, 0, 0, 0};
   uint32_t data_block_num, entry_count, value_array_length, key_array_length;
-  bool header_reading_results;
+  Slice header_info_temp_result;
+  Read(offset, header_field_num * sizeof(uint32_t), &header_info_temp_result);
   for (int i = 0; i < header_field_num; i++) {
-    Slice header_info_temp_result;
-    header_reading_results =
-        Read(offset, sizeof(uint32_t), &header_info_temp_result);
-    offset += sizeof(uint32_t);
     GetFixed32(&header_info_temp_result, &header_fields[i]);
-    assert(header_reading_results);
   }
   data_block_num = header_fields[0];
   entry_count = header_fields[1];
@@ -168,7 +164,8 @@ Status GearTableFileReader::NextBlock(uint32_t offset,
   data_pages.data_page_list.emplace_back(entry_count, data_block_num);
   data_pages.data_page_offset.emplace_back(
       offset, value_array_length + key_array_length);
-  *data_block_size = value_array_length + key_array_length;
+  *data_block_size = value_array_length + key_array_length +
+                     header_field_num * sizeof(uint32_t);
   return Status();
 }
 

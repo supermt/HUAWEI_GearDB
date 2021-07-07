@@ -32,8 +32,11 @@ class GearTableFileReader {
     this->ReadMetaData();
     uint64_t offset = 0;
     uint32_t current_block_size = 0;
-    while (offset < file_size) {
+    uint32_t scanned_entries = 0;
+    while (scanned_entries < meta_infos.num_data_blocks) {
       NextBlock(offset, &current_block_size);
+      scanned_entries++;
+      if (current_block_size == 0) break;
       offset += current_block_size;
     }
   }
