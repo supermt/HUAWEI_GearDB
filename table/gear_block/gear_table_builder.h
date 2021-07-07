@@ -115,7 +115,7 @@ class GearTableBuilder : public TableBuilder {
   std::string block_header_buffer;
   std::string block_value_buffer;
   std::string block_key_buffer;
-  int32_t page_entry_count;
+  uint32_t page_entry_count;
 
   std::vector<uint32_t> keys_or_prefixes_hashes_;
 

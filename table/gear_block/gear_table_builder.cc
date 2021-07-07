@@ -49,6 +49,7 @@ GearTableBuilder::GearTableBuilder(
       offset_(0),
       current_key_length(0),
       current_value_length(0),
+      page_entry_count(0),
       prefix_extractor_(moptions.prefix_extractor.get()) {
   std::string ori_file_name = file->file_name();
 
