@@ -96,12 +96,8 @@ void GearTableBuilder::FlushDataBlock() {
   properties_.num_data_blocks += 1;
   PutFixed32(&block_header_buffer, properties_.num_data_blocks);
   PutFixed32(&block_header_buffer, page_entry_count);
-
-  assert(current_key_length == block_key_buffer.size());
-  assert(current_value_length == block_value_buffer.size());
-
-  PutFixed32(&block_value_buffer, (uint32_t)block_value_buffer.size());
-  PutFixed32(&block_value_buffer, (uint32_t)block_key_buffer.size());
+  PutFixed32(&block_header_buffer, (uint32_t)block_value_buffer.size());
+  PutFixed32(&block_header_buffer, (uint32_t)block_key_buffer.size());
 
   // Gear table don't need any meta data.
   std::reverse(block_key_buffer.begin(), block_key_buffer.end());
