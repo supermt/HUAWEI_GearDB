@@ -77,6 +77,11 @@ class GearTableIterator : public InternalIterator {
 
   Status status() const override;
 
+  void SetToInvalid() {
+    visited_key_counts_ = total_entry_count + 1;
+    return;
+  }
+
  private:
   GearTableReader* table_;
   uint64_t visited_key_counts_;
@@ -325,17 +330,17 @@ Status GearTableReader::MmapDataIfNeeded() {
 
 GearTableIterator::GearTableIterator(GearTableReader* table) : table_(table) {
   total_entry_count = table->file_reader_->GetEntryCount();
-  visited_key_counts_ = total_entry_count;
+  //  visited_key_counts_ = total_entry_count;
+  SetToInvalid();
   //  Next();
 }
 
 GearTableIterator::~GearTableIterator() {}
 
 bool GearTableIterator::Valid() const {
-  return visited_key_counts_ < total_entry_count &&
+  return visited_key_counts_ <= total_entry_count &&
          visited_key_counts_ >= table_->file_reader_->EntryCountStartPosition();
 }
-
 void GearTableIterator::SeekToFirst() {
   status_ = Status::OK();
   visited_key_counts_ = table_->file_reader_->EntryCountStartPosition();
@@ -366,7 +371,8 @@ void GearTableIterator::Seek(const Slice& target) {
   status_ = table_->file_reader_->GetKey(visited_key_counts_, &parsedKey, &key_,
                                          &value_);
   if (!status_.ok()) {
-    visited_key_counts_ = total_entry_count;
+    //    visited_key_counts_ = total_entry_count;
+    SetToInvalid();
     return;
   }
   if (visited_key_counts_ < total_entry_count) {
@@ -380,8 +386,10 @@ void GearTableIterator::Seek(const Slice& target) {
       }
     }
   } else {
-    visited_key_counts_ = total_entry_count;
+    //    visited_key_counts_ = total_entry_count;
+    SetToInvalid();
   }
+
   // the table reader will search through the index
 }
 
@@ -397,7 +405,8 @@ void GearTableIterator::Next() {
     status_ = table_->file_reader_->GetKey(visited_key_counts_, &parsed_key,
                                            &key_, &value_);
     if (!status_.ok()) {
-      visited_key_counts_ = total_entry_count;
+      //      visited_key_counts_ = total_entry_count;
+      SetToInvalid();
     }
   }
   visited_key_counts_++;

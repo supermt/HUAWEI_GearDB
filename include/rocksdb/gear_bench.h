@@ -16,6 +16,36 @@ static std::string ColumnFamilyName(size_t i) {
     return std::string(name);
   }
 }
+
+enum WriteMode { RANDOM, SEQUENTIAL, UNIQUE_RANDOM };
+
+class KeyGenerator {
+ public:
+  KeyGenerator(Random64* rand, WriteMode mode, uint64_t num,
+               uint64_t /*num_per_set*/ = 64 * 1024);
+
+  uint64_t Next() {
+    switch (mode_) {
+      case SEQUENTIAL:
+        return next_++;
+      case RANDOM:
+        return rand_->Next() % num_;
+      case UNIQUE_RANDOM:
+        assert(next_ < num_);
+        return values_[next_++];
+    }
+    assert(false);
+    return std::numeric_limits<uint64_t>::max();
+  }
+
+ private:
+  Random64* rand_;
+  WriteMode mode_;
+  const uint64_t num_;
+  uint64_t next_;
+  std::vector<uint64_t> values_;
+};
+
 struct DBWithColumnFamilies {
   std::vector<ColumnFamilyHandle*> cfh;
   DB* db;

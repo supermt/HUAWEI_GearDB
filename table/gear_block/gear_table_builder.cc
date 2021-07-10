@@ -49,6 +49,8 @@ GearTableBuilder::GearTableBuilder(
       offset_(0),
       current_key_length(0),
       current_value_length(0),
+      status_(),
+      io_status_(),
       page_entry_count(0),
       prefix_extractor_(moptions.prefix_extractor.get()) {
   std::string ori_file_name = file->file_name();
@@ -101,7 +103,7 @@ void GearTableBuilder::FlushDataBlock() {
   PutFixed32(&block_header_buffer, (uint32_t)block_key_buffer.size());
 
   // Gear table don't need any meta data.
-//  std::reverse(block_key_buffer.begin(), block_key_buffer.end());
+  //  std::reverse(block_key_buffer.begin(), block_key_buffer.end());
   std::string data_block =
       block_header_buffer + block_value_buffer + block_key_buffer;
   io_status_ = file_->Append(data_block);
