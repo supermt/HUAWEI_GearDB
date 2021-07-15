@@ -63,7 +63,10 @@ class VersionBuilder::Rep {
   // kLevel0 -- NewestFirstBySeqNo
   // kLevelNon0 -- BySmallestKey
   struct FileComparator {
-    enum SortMethod { kLevel0 = 0, kLevelNon0 = 1, } sort_method;
+    enum SortMethod {
+      kLevel0 = 0,
+      kLevelNon0 = 1,
+    } sort_method;
     const InternalKeyComparator* internal_comparator;
 
     FileComparator() : internal_comparator(nullptr) {}
@@ -348,10 +351,14 @@ class VersionBuilder::Rep {
           // Make sure there is no overlap in levels > 0
           if (vstorage->InternalComparator()->Compare(f1->largest,
                                                       f2->smallest) >= 0) {
-            return Status::Corruption(
-                "L" + NumberToString(level) + " have overlapping ranges " +
-                (f1->largest).DebugString(true) + " vs. " +
-                (f2->smallest).DebugString(true));
+            if (ioptions_->compaction_style == kCompactionStyleGear) {
+              return Status::OK();
+            } else {
+              return Status::Corruption(
+                  "L" + NumberToString(level) + " have overlapping ranges " +
+                  (f1->largest).DebugString(true) + " vs. " +
+                  (f2->smallest).DebugString(true));
+            }
           }
         }
       }
@@ -848,7 +855,7 @@ class VersionBuilder::Rep {
       auto added_end = added_files.end();
       while (added_iter != added_end || base_iter != base_end) {
         if (base_iter == base_end ||
-                (added_iter != added_end && cmp(*added_iter, *base_iter))) {
+            (added_iter != added_end && cmp(*added_iter, *base_iter))) {
           MaybeAddFile(vstorage, level, *added_iter++);
         } else {
           MaybeAddFile(vstorage, level, *base_iter++);

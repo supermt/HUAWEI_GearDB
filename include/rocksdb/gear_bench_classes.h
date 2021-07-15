@@ -244,102 +244,6 @@ class CountingLogger : public Logger {
   void Logv(const char* /*format*/, va_list /*ap*/) override { log_count++; }
   size_t log_count;
 };
-class CompactionPickerDummy {
- public:
-  const Comparator* ucmp_;
-  InternalKeyComparator icmp_;
-  Options options_;
-  ImmutableCFOptions ioptions_;
-  MutableCFOptions mutable_cf_options_;
-  GearCompactionPicker gear_compaction_picker_;
-  std::string cf_name_;
-  CountingLogger logger_;
-  LogBuffer log_buffer_;
-  uint32_t file_num_;
-  CompactionOptionsFIFO fifo_options_;
-  std::unique_ptr<VersionStorageInfo> vstorage_;
-  std::vector<std::unique_ptr<FileMetaData>> files_;
-  // does not own FileMetaData
-  std::unordered_map<uint32_t, std::pair<FileMetaData*, int>> file_map_;
-  // input files to compaction process.
-  std::vector<CompactionInputFiles> input_files_;
-  int compaction_level_start_;
-
- private:
-  std::unique_ptr<VersionStorageInfo> temp_vstorage_;
-
- public:
-  CompactionPickerDummy(Options& opt)
-      : ucmp_(BytewiseComparator()),
-        icmp_(ucmp_),
-        ioptions_(opt),
-        mutable_cf_options_(opt),
-        gear_compaction_picker_(ioptions_, &icmp_),
-        cf_name_(kDefaultColumnFamilyName),
-        log_buffer_(InfoLogLevel::INFO_LEVEL, &logger_),
-        file_num_(1),
-        vstorage_(nullptr) {
-    mutable_cf_options_.RefreshDerivedOptions(ioptions_);
-  }
-  ~CompactionPickerDummy() {
-    std::cout << "Destroying the compaction picker" << std::endl;
-  }
-
-  void NewVersionStorage(int num_levels, CompactionStyle style) {
-    DeleteVersionStorage();
-    options_.num_levels = num_levels;
-    vstorage_.reset(new VersionStorageInfo(&icmp_, ucmp_, options_.num_levels,
-                                           style, nullptr, false));
-    vstorage_->CalculateBaseBytes(ioptions_, mutable_cf_options_);
-  }
-  void AddVersionStorage() {
-    temp_vstorage_.reset(new VersionStorageInfo(
-        &icmp_, ucmp_, options_.num_levels, ioptions_.compaction_style,
-        vstorage_.get(), false));
-  }
-
-  void DeleteVersionStorage() {
-    vstorage_.reset();
-    temp_vstorage_.reset();
-    files_.clear();
-    file_map_.clear();
-    input_files_.clear();
-  }
-  void Add(int level, uint32_t file_number, const char* smallest,
-           const char* largest, int l2_position = 1, uint64_t file_size = 1,
-           uint32_t path_id = 0, SequenceNumber smallest_seq = 100,
-           SequenceNumber largest_seq = 100, size_t compensated_file_size = 0,
-           bool marked_for_compact = false);
-
-  void SetCompactionInputFilesLevels() {
-    int level_count = 1;
-    int start_level = 2;
-    // We consider the L2 All in One compaction only
-    input_files_.resize(level_count);
-    for (int i = 0; i < level_count; ++i) {
-      input_files_[i].level = start_level + i;
-    }
-    compaction_level_start_ = start_level;
-  }
-
-  void AddToCompactionFiles(uint32_t file_number) {
-    auto iter = file_map_.find(file_number);
-    assert(iter != file_map_.end());
-    int level = iter->second.second;
-    assert(level < vstorage_->num_levels());
-    input_files_[level - compaction_level_start_].files.emplace_back(
-        iter->second.first);
-  }
-
-  void UpdateVersionStorageInfo();
-  void AddFileToVersionStorage(int level, uint32_t file_number,
-                               const char* smallest, const char* largest,
-                               uint64_t file_size = 1, uint32_t path_id = 0,
-                               SequenceNumber smallest_seq = 100,
-                               SequenceNumber largest_seq = 100,
-                               size_t compensated_file_size = 0,
-                               bool marked_for_compact = false);
-};
 
 class MockFileGenerator {
  public:
@@ -415,13 +319,55 @@ class MockFileGenerator {
     versions_->SetLastPublishedSequence(sequence_number + 1);
     versions_->SetLastSequence(sequence_number + 1);
   }
-  Status AddMockFile(const stl_wrappers::KVMap& contents, int level = 2);
-  void TriggerCompaction(CompactionPickerDummy* picker);
+  Status AddMockFile(const stl_wrappers::KVMap& contents, int level = 2,
+                     int l2_position = VersionStorageInfo::l2_large_tree_index);
+  void TriggerCompaction(bool* triggered);
   void NewDB(bool use_existing_data);
   void FreeDB();
   Status CreateFileByKeyRange(uint64_t smallest_key, uint64_t largest_key,
-                              KeyGenerator* key_gen);
+                              KeyGenerator* key_gen,
+                              SequenceNumber start_seq = 0);
   void ReOpenDB();
 };
 
+class SpanningKeyGenerator {
+  uint64_t lower_bound_;
+  uint64_t upper_bound_;
+  std::set<uint64_t> result_list;
+  std::default_random_engine engine;
+
+ public:
+  enum DISTRIBUTION_TYPE { kUniform, kOther };
+
+ public:
+  SpanningKeyGenerator(uint64_t lower_bound, uint64_t upper_bound, int num_keys,
+                       int seed = 0, DISTRIBUTION_TYPE distribution = kUniform)
+      : lower_bound_(lower_bound), upper_bound_(upper_bound), engine(seed) {
+    assert(lower_bound_ < upper_bound_);
+    switch (distribution) {
+      case kUniform: {
+        std::uniform_int_distribution<uint64_t> distributor(lower_bound_,
+                                                            upper_bound_);
+        for (int i = 0; i < num_keys; i++) {
+          result_list.insert(distributor(engine));
+        }
+        break;
+      }
+      case kOther:
+        result_list.clear();
+        break;
+    }
+  }
+  stl_wrappers::KVMap GenerateContent(KeyGenerator* key_gen_ptr,
+                                      SequenceNumber* seqno) {
+    stl_wrappers::KVMap content;
+    std::string value = "1234567890";
+    for (auto key : result_list) {
+      InternalKey ikey(key_gen_ptr->GenerateKeyFromInt(key), ++(*seqno),
+                       kTypeValue);
+      content.emplace(ikey.Encode().ToString(), value);
+    }
+    return content;
+  }
+};
 }  // namespace ROCKSDB_NAMESPACE

@@ -51,68 +51,6 @@ Slice KeyGenerator::AllocateKey(std::unique_ptr<const char[]>* key_guard,
   key_guard->reset(const_data);
   return Slice(key_guard->get(), key_size);
 }
-void CompactionPickerDummy::Add(int level, uint32_t file_number,
-                                const char* smallest, const char* largest,
-                                int l2_position, uint64_t file_size,
-                                uint32_t path_id, SequenceNumber smallest_seq,
-                                SequenceNumber largest_seq,
-                                size_t compensated_file_size,
-                                bool marked_for_compact) {
-  VersionStorageInfo* vstorage;
-  if (temp_vstorage_) {
-    vstorage = temp_vstorage_.get();
-  } else {
-    vstorage = vstorage_.get();
-  }
-  assert(level < vstorage->num_levels());
-  FileMetaData* f = new FileMetaData(
-      file_number, path_id, file_size,
-      InternalKey(smallest, smallest_seq, kTypeValue),
-      InternalKey(largest, largest_seq, kTypeValue), smallest_seq, largest_seq,
-      marked_for_compact, kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-      kUnknownFileCreationTime, kUnknownFileChecksum,
-      kUnknownFileChecksumFuncName);
-  f->compensated_file_size =
-      (compensated_file_size != 0) ? compensated_file_size : file_size;
-  f->l2_position = l2_position;
-  vstorage->AddFile(level, f);
-  files_.emplace_back(f);
-  file_map_.insert({file_number, {f, level}});
-}
-void CompactionPickerDummy::UpdateVersionStorageInfo() {
-  if (temp_vstorage_) {
-    VersionBuilder builder(FileOptions(), &ioptions_, nullptr, vstorage_.get(),
-                           nullptr);
-    builder.SaveTo(temp_vstorage_.get());
-    vstorage_ = std::move(temp_vstorage_);
-  }
-  vstorage_->CalculateBaseBytes(ioptions_, mutable_cf_options_);
-  vstorage_->UpdateFilesByCompactionPri(ioptions_.compaction_pri);
-  vstorage_->UpdateNumNonEmptyLevels();
-  vstorage_->GenerateFileIndexer();
-  vstorage_->GenerateLevelFilesBrief();
-  vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_);
-  vstorage_->GenerateLevel0NonOverlapping();
-  vstorage_->ComputeFilesMarkedForCompaction();
-  vstorage_->SetFinalized();
-}
-void CompactionPickerDummy::AddFileToVersionStorage(
-    int level, uint32_t file_number, const char* smallest, const char* largest,
-    uint64_t file_size, uint32_t path_id, SequenceNumber smallest_seq,
-    SequenceNumber largest_seq, size_t compensated_file_size,
-    bool marked_for_compact) {
-  VersionStorageInfo* base_vstorage = vstorage_.release();
-  vstorage_.reset(new VersionStorageInfo(&icmp_, ucmp_, options_.num_levels,
-                                         kCompactionStyleUniversal,
-                                         base_vstorage, false));
-  Add(level, file_number, smallest, largest, file_size, path_id, smallest_seq,
-      largest_seq, compensated_file_size, marked_for_compact);
-
-  VersionBuilder builder(FileOptions(), &ioptions_, nullptr, base_vstorage,
-                         nullptr);
-  builder.SaveTo(vstorage_.get());
-  UpdateVersionStorageInfo();
-}
 
 void MockFileGenerator::ReOpenDB() {
   DBImpl* impl = new DBImpl(DBOptions(options_), dbname_);
@@ -187,10 +125,7 @@ void MockFileGenerator::NewDB(bool use_existing_data) {
 }
 
 Status MockFileGenerator::AddMockFile(const stl_wrappers::KVMap& contents,
-                                      int level) {
-  assert(this->cf_options_.compaction_style == kCompactionStyleGear);
-  assert(level = 2);
-
+                                      int level, int l2_position) {
   bool first_key = true;
   std::string smallest, largest;
   InternalKey smallest_key, largest_key;
@@ -235,7 +170,7 @@ Status MockFileGenerator::AddMockFile(const stl_wrappers::KVMap& contents,
                largest_key, smallest_seqno, largest_seqno, false,
                oldest_blob_file_number, kUnknownOldestAncesterTime,
                kUnknownOldestAncesterTime, kUnknownFileChecksum,
-               kUnknownFileChecksumFuncName);
+               kUnknownFileChecksumFuncName, l2_position);
   mutex_.Lock();
   s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
                              mutable_cf_options_, &edit, &mutex_);
@@ -244,12 +179,15 @@ Status MockFileGenerator::AddMockFile(const stl_wrappers::KVMap& contents,
   return s;
 }
 
-void MockFileGenerator::TriggerCompaction(CompactionPickerDummy* picker) {}
+void MockFileGenerator::TriggerCompaction(bool* triggered) {
+  *triggered = cfd_->NeedsCompaction();
+}
 Status MockFileGenerator::CreateFileByKeyRange(uint64_t smallest_key,
                                                uint64_t largest_key,
-                                               KeyGenerator* key_gen) {
+                                               KeyGenerator* key_gen,
+                                               SequenceNumber start_seq) {
   Status s;
-  SequenceNumber sequence_number = 0;
+  SequenceNumber sequence_number = start_seq;
   stl_wrappers::KVMap content;
   assert(content.empty());
   std::string value = "1234567890";
@@ -258,7 +196,7 @@ Status MockFileGenerator::CreateFileByKeyRange(uint64_t smallest_key,
     InternalKey ikey(key, ++sequence_number, kTypeValue);
     content.emplace(ikey.Encode().ToString(), value);
   }
-  s = AddMockFile(content, 2);
+  s = AddMockFile(content, 2, VersionStorageInfo::l2_large_tree_index);
   SetLastSequence(sequence_number);
   return s;
 }

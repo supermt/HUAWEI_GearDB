@@ -110,8 +110,7 @@ DEFINE_uint64(distinct_num, 80000000000, "number of distinct entries");
 DEFINE_uint64(existing_entries, 80000000000,
               "The number of entries inside existing database, this option "
               "will be ignored while use_existing_data is triggered");
-DEFINE_uint64(l2_small_size, 500000 * 64,
-              "Size (entry count) of L2 Small tree");
+DEFINE_uint64(l2_small_tree_num, 1, "Num of SST files in L2 Small tree");
 
 // Key size settings.
 DEFINE_int32(key_size, 15, "size of each key");
@@ -168,15 +167,18 @@ void StartBenchmark(Options& start_options) {
   //  bench.GenerateDB(start_options);
 }
 
-void GenerateKeyRange() {
-  std::cout << "calculating the number of distinct number" << std::endl;
-  uint64_t max_key_in_file = max_key_num();
-  uint64_t distinct_num = std::max(FLAGS_distinct_num, max_key_in_file);
-  std::cout << "Distinct num in options is: " << FLAGS_distinct_num
-            << std::endl;
-  std::cout << "Max key in existing tables is " << max_key_in_file << std::endl;
-  std::cout << "we choose the max of them, which is " << distinct_num
-            << std::endl;
+void PrintFullTree(ColumnFamilyData* cfd) {
+  for (int i = 0; i < 3; i++) {
+    std::cout << "level: " << i << " : " << std::endl;
+    for (auto file : cfd->current()->storage_info()->LevelFiles(i)) {
+      std::cout << "File Number: " << file->fd.GetNumber()
+                << ", file's smallest key: "
+                << file->smallest.user_key().ToString(true)
+                << ", file's largest key: "
+                << file->smallest.user_key().ToString(true) << std::endl;
+      file->l2_position = VersionStorageInfo::l2_large_tree_index;
+    }
+  }
 }
 
 Options BootStrap(int argc, char** argv) {
@@ -206,13 +208,8 @@ int gear_bench(int argc, char** argv) {
   KeyGenerator key_gen(&rand_gen, SEQUENTIAL, FLAGS_distinct_num, FLAGS_seed,
                        FLAGS_key_size, FLAGS_min_value);
 
-  // Create the picker dummy, use this to create the compacted levels.
-  CompactionPickerDummy pickerDummy(basic_options);
-  pickerDummy.NewVersionStorage(3, kCompactionStyleGear);
-  pickerDummy.UpdateVersionStorageInfo();
-
-  // Create the mock file generator
-  MockFileGenerator l2_big_tree_gen(FLAGS_env, FLAGS_db, basic_options);
+  // Create the mock file generator, estimate the fully compacted l2 big tree
+  MockFileGenerator mock_db(FLAGS_env, FLAGS_db, basic_options);
 
   // Preparation finished
   std::stringstream benchmark_stream(FLAGS_benchmark);
@@ -221,18 +218,57 @@ int gear_bench(int argc, char** argv) {
     if (name == "merge") {
       FLAGS_use_existing_data = true;
       std::cout << "Start the merging" << std::endl;
-      l2_big_tree_gen.ReOpenDB();
+      mock_db.ReOpenDB();
+      // Validate the version.
+      auto cfd = mock_db.versions_->GetColumnFamilySet()->GetDefault();
+      PrintFullTree(cfd);
+      // trigger a compaction before adding new files.
+      bool compaction_triggered;
+      mock_db.TriggerCompaction(&compaction_triggered);
+      std::cout << "Compaction triggered: " << compaction_triggered
+                << std::endl;
 
-      auto cfd = l2_big_tree_gen.versions_->GetColumnFamilySet()->GetDefault();
-      for (int i = 0; i < 3; i++) {
-        std::cout << "level: " << i << " : " << std::endl;
-        for (auto file : cfd->current()->storage_info()->LevelFiles(i))
-          std::cout << "File Number: " << file->fd.GetNumber()
-                    << ", file's smallest key: "
-                    << file->smallest.user_key().ToString(true) << std::endl;
+      cfd = mock_db.versions_->GetColumnFamilySet()->GetDefault();
+      PrintFullTree(cfd);
+      uint64_t total_key_range = FLAGS_distinct_num - FLAGS_min_value;
+      uint64_t merge_key_range = total_key_range * FLAGS_span_range;
+      uint64_t single_file_range = merge_key_range / FLAGS_l2_small_tree_num;
+      if (merge_key_range < FLAGS_write_buffer_size ||
+          single_file_range < FLAGS_write_buffer_size) {
+        std::cout << "can't fill one single SST, try to decrease the SSTable "
+                     "size or increase the overlapping range."
+                  << std::endl;
+        break;
       }
+      SequenceNumber seq = mock_db.versions_->LastSequence();
+
+      for (uint64_t i = 0; i < FLAGS_l2_small_tree_num; i++) {
+        stl_wrappers::KVMap content;
+        uint64_t smallest = FLAGS_min_value + i * single_file_range;
+        uint64_t largest = FLAGS_min_value + (i + 1) * single_file_range - 1;
+        std::cout << smallest << "," << largest << std::endl;
+        largest = std::min(largest, FLAGS_distinct_num);
+        SpanningKeyGenerator l2_small_key_gen(
+            smallest, largest,
+            std::min(FLAGS_write_buffer_size, largest - smallest), FLAGS_seed,
+            SpanningKeyGenerator::kUniform);
+        content = l2_small_key_gen.GenerateContent(&key_gen, &seq);
+        // add to the level-1, skip the overlapping checking
+        // TODO: find out which is better
+        Status s = mock_db.AddMockFile(content, 2,
+                                       VersionStorageInfo::l2_small_tree_index);
+        //
+        std::cout << s.ToString() << std::endl;
+      }
+      cfd = mock_db.versions_->GetColumnFamilySet()->GetDefault();
+      PrintFullTree(cfd);
+      // TODO: finish the compaction trigger
+      mock_db.TriggerCompaction(&compaction_triggered);
+      std::cout << "Compaction triggered :" << ToString(compaction_triggered)
+                << std::endl;
+      mock_db.FreeDB();
     } else if (name == "generate") {
-      l2_big_tree_gen.NewDB(FLAGS_use_existing_data);
+      mock_db.NewDB(FLAGS_use_existing_data);
       int l2_big_tree_num = FLAGS_distinct_num / FLAGS_write_buffer_size;
       std::cout << l2_big_tree_num << " SSTs need creatation" << std::endl;
       assert(FLAGS_use_existing_data == false);
@@ -242,8 +278,7 @@ int gear_bench(int argc, char** argv) {
         uint64_t largest_key = smallest_key + FLAGS_write_buffer_size;
         largest_key = std::min(largest_key, FLAGS_distinct_num);
 
-        l2_big_tree_gen.CreateFileByKeyRange(smallest_key, largest_key,
-                                             &key_gen);
+        mock_db.CreateFileByKeyRange(smallest_key, largest_key, &key_gen);
         std::cout << "No. " << file_num
                   << " SST generated, smallest key: " << smallest_key
                   << " largest key: " << largest_key << std::endl;
@@ -258,18 +293,19 @@ int gear_bench(int argc, char** argv) {
         smallest_key_str = key_gen.GenerateKeyFromInt(smallest_key);
         largest_key_str = key_gen.GenerateKeyFromInt(largest_key);
 
-        l2_big_tree_gen.CreateFileByKeyRange(smallest_key, largest_key,
-                                             &key_gen);
+        mock_db.CreateFileByKeyRange(smallest_key, largest_key, &key_gen);
         std::cout << "No. " << l2_big_tree_num
                   << " SST generated, smallest key: " << smallest_key_str
                   << " largest key: " << largest_key_str << std::endl;
       }
       std::cout << "l2 big tree generated" << std::endl;
+      mock_db.FreeDB();
     } else {
+      mock_db.FreeDB();
       return -1;
     }
   }
-  l2_big_tree_gen.FreeDB();
+  mock_db.FreeDB();
 
   return 0;
 }
