@@ -421,6 +421,7 @@ class MockFileGenerator {
   void FreeDB();
   Status CreateFileByKeyRange(uint64_t smallest_key, uint64_t largest_key,
                               KeyGenerator* key_gen);
+  void ReOpenDB();
 };
 
 }  // namespace ROCKSDB_NAMESPACE

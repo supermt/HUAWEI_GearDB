@@ -213,23 +213,26 @@ int gear_bench(int argc, char** argv) {
 
   // Create the mock file generator
   MockFileGenerator l2_big_tree_gen(FLAGS_env, FLAGS_db, basic_options);
-  l2_big_tree_gen.NewDB(FLAGS_use_existing_data);
 
   // Preparation finished
   std::stringstream benchmark_stream(FLAGS_benchmark);
   std::string name;
   while (std::getline(benchmark_stream, name, ',')) {
     if (name == "merge") {
-      std::vector<std::string> keys;
-      std::string temp;
-      for (uint64_t i = 0; i < 10; i++) {
-        temp = key_gen.NextString();
-        //    std::cout << key.ToString(true) << std::endl;
-        keys.push_back(temp);
-      }
-      l2_small_gen.CreateFileAndCheck(keys);
+      FLAGS_use_existing_data = true;
+      std::cout << "Start the merging" << std::endl;
+      l2_big_tree_gen.ReOpenDB();
 
+      auto cfd = l2_big_tree_gen.versions_->GetColumnFamilySet()->GetDefault();
+      for (int i = 0; i < 3; i++) {
+        std::cout << "level: " << i << " : " << std::endl;
+        for (auto file : cfd->current()->storage_info()->LevelFiles(i))
+          std::cout << "File Number: " << file->fd.GetNumber()
+                    << ", file's smallest key: "
+                    << file->smallest.user_key().ToString(true) << std::endl;
+      }
     } else if (name == "generate") {
+      l2_big_tree_gen.NewDB(FLAGS_use_existing_data);
       int l2_big_tree_num = FLAGS_distinct_num / FLAGS_write_buffer_size;
       std::cout << l2_big_tree_num << " SSTs need creatation" << std::endl;
       assert(FLAGS_use_existing_data == false);
@@ -238,16 +241,12 @@ int gear_bench(int argc, char** argv) {
             file_num * FLAGS_write_buffer_size + FLAGS_min_value;
         uint64_t largest_key = smallest_key + FLAGS_write_buffer_size;
         largest_key = std::min(largest_key, FLAGS_distinct_num);
-        std::string smallest_key_str;
-        std::string largest_key_str;
-        smallest_key_str = key_gen.GenerateKeyFromInt(smallest_key);
-        largest_key_str = key_gen.GenerateKeyFromInt(largest_key);
 
         l2_big_tree_gen.CreateFileByKeyRange(smallest_key, largest_key,
                                              &key_gen);
         std::cout << "No. " << file_num
-                  << " SST generated, smallest key: " << smallest_key_str
-                  << " largest key: " << largest_key_str << std::endl;
+                  << " SST generated, smallest key: " << smallest_key
+                  << " largest key: " << largest_key << std::endl;
       }
       if (l2_big_tree_num * FLAGS_write_buffer_size < FLAGS_distinct_num) {
         uint64_t smallest_key =
@@ -266,7 +265,6 @@ int gear_bench(int argc, char** argv) {
                   << " largest key: " << largest_key_str << std::endl;
       }
       std::cout << "l2 big tree generated" << std::endl;
-
     } else {
       return -1;
     }

@@ -113,7 +113,30 @@ void CompactionPickerDummy::AddFileToVersionStorage(
   builder.SaveTo(vstorage_.get());
   UpdateVersionStorageInfo();
 }
+
+void MockFileGenerator::ReOpenDB() {
+  DBImpl* impl = new DBImpl(DBOptions(options_), dbname_);
+  std::vector<ColumnFamilyDescriptor> column_families;
+  cf_options_.table_factory = gear_table_factory;
+  cf_options_.merge_operator = merge_op_;
+  cf_options_.compaction_filter = compaction_filter_.get();
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options_);
+  versions_.release();
+  versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
+                                 table_cache_.get(), &write_buffer_manager_,
+                                 &write_controller_,
+                                 /*block_cache_tracer=*/nullptr));
+  compaction_job_stats_.Reset();
+  SetIdentityFile(env_, dbname_);
+  assert(versions_->Recover(column_families, false).ok());
+  cfd_ = versions_->GetColumnFamilySet()->GetDefault();
+  ColumnFamilyHandle* handle =
+      new ColumnFamilyHandleImpl(cfd_, impl, impl->mutex());
+  writer_.reset(new SstFileWriter(env_options_, options_, handle));
+}
+
 void MockFileGenerator::NewDB(bool use_existing_data) {
+  DBImpl* impl = new DBImpl(DBOptions(options_), dbname_);
   if (!use_existing_data) {
     DestroyDB(dbname_, Options());
   }
@@ -126,7 +149,6 @@ void MockFileGenerator::NewDB(bool use_existing_data) {
   SetIdentityFile(env_, dbname_);
 
   VersionEdit new_db;
-  DBImpl* impl = new DBImpl(DBOptions(), dbname_);
   if (db_options_.write_dbid_to_manifest) {
     std::string db_id;
     impl->GetDbIdentityFromIdentityFile(&db_id);
@@ -215,10 +237,10 @@ Status MockFileGenerator::AddMockFile(const stl_wrappers::KVMap& contents,
                kUnknownOldestAncesterTime, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName);
   mutex_.Lock();
-  versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                         mutable_cf_options_, &edit, &mutex_);
+  s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                             mutable_cf_options_, &edit, &mutex_);
   mutex_.Unlock();
-
+  //  assert(s.ok());
   return s;
 }
 
@@ -231,7 +253,7 @@ Status MockFileGenerator::CreateFileByKeyRange(uint64_t smallest_key,
   stl_wrappers::KVMap content;
   assert(content.empty());
   std::string value = "1234567890";
-  for (uint64_t i = smallest_key; i <= largest_key; i++) {
+  for (uint64_t i = smallest_key; i < largest_key; i++) {
     auto key = key_gen->GenerateKeyFromInt(i);
     InternalKey ikey(key, ++sequence_number, kTypeValue);
     content.emplace(ikey.Encode().ToString(), value);
