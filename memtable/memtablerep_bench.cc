@@ -160,14 +160,14 @@ enum WriteMode { SEQUENTIAL, RANDOM, UNIQUE_RANDOM };
 class KeyGenerator {
  public:
   KeyGenerator(Random64* rand, WriteMode mode, uint64_t num)
-      : rand_(rand), mode_(mode), num_(num), next_(0) {
+      : rand_(rand), mode_(mode), distinct_num_(num), next_(0) {
     if (mode_ == UNIQUE_RANDOM) {
       // NOTE: if memory consumption of this approach becomes a concern,
       // we can either break it into pieces and only random shuffle a section
       // each time. Alternatively, use a bit map implementation
       // (https://reviews.facebook.net/differential/diff/54627/)
-      values_.resize(num_);
-      for (uint64_t i = 0; i < num_; ++i) {
+      values_.resize(distinct_num_);
+      for (uint64_t i = 0; i < distinct_num_; ++i) {
         values_[i] = i;
       }
       RandomShuffle(values_.begin(), values_.end(),
@@ -180,7 +180,7 @@ class KeyGenerator {
       case SEQUENTIAL:
         return next_++;
       case RANDOM:
-        return rand_->Next() % num_;
+        return rand_->Next() % distinct_num_;
       case UNIQUE_RANDOM:
         return values_[next_++];
     }
@@ -191,7 +191,7 @@ class KeyGenerator {
  private:
   Random64* rand_;
   WriteMode mode_;
-  const uint64_t num_;
+  const uint64_t distinct_num_;
   uint64_t next_;
   std::vector<uint64_t> values_;
 };
