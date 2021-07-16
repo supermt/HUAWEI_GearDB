@@ -179,8 +179,50 @@ Status MockFileGenerator::AddMockFile(const stl_wrappers::KVMap& contents,
   return s;
 }
 
-void MockFileGenerator::TriggerCompaction(bool* triggered) {
+Status MockFileGenerator::TriggerCompaction(bool* triggered) {
+  cfd_ = versions_->GetColumnFamilySet()->GetDefault();
   *triggered = cfd_->NeedsCompaction();
+  Status s;
+  // Trigger a compaction manually
+  //  std::vector<CompactionInputFiles> input_files;
+  CompactionInputFiles l2_input_files;
+  l2_input_files.level = 2;
+  for (auto file : cfd_->current()->storage_info()->LevelFiles(2)) {
+    l2_input_files.files.push_back(file);
+  }
+  std::cout << options_.max_compaction_bytes << std::endl;
+  std::cout << options_.write_buffer_size << std::endl;
+  Compaction compaction(cfd_->current()->storage_info(), *cfd_->ioptions(),
+                        *cfd_->GetLatestMutableCFOptions(), {l2_input_files}, 2,
+                        options_.write_buffer_size * 100,
+                        options_.max_compaction_bytes, 0, kNoCompression,
+                        cfd_->GetLatestMutableCFOptions()->compression_opts,
+                        options_.max_background_jobs, {}, true);
+  compaction.SetInputVersion(cfd_->current());
+  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
+  std::vector<SequenceNumber> snapshots = {};
+  SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber;
+  mutex_.Lock();
+  EventLogger event_logger(db_options_.info_log.get());
+  SnapshotChecker* snapshot_checker = nullptr;
+  CompactionJob compaction_job(
+      0, &compaction, db_options_, env_options_, versions_.get(),
+      &shutting_down_, preserve_deletes_seqnum_, &log_buffer, nullptr, nullptr,
+      nullptr, &mutex_, &error_handler_, snapshots,
+      earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
+      &event_logger, false, false, dbname_, &compaction_job_stats_,
+      Env::Priority::USER);
+
+  compaction_job.Prepare();
+  mutex_.Unlock();
+  std::cout << "All in One Compaction Triggered" << std::endl;
+  s = compaction_job.Run();
+  assert(s.ok());
+  mutex_.Lock();
+  s = compaction_job.Install(*cfd_->GetLatestMutableCFOptions());
+  assert(s.ok());
+  mutex_.Unlock();
+  return s;
 }
 Status MockFileGenerator::CreateFileByKeyRange(uint64_t smallest_key,
                                                uint64_t largest_key,

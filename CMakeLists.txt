@@ -1258,6 +1258,7 @@ if (WITH_BENCHMARK_TOOLS)
             ${ROCKSDB_LIB})
 
     add_executable(gear_bench
+            tools/gear_bench_classes.cc
             tools/gear_bench.cc
             tools/gear_bench_tool.cc)
     target_link_libraries(gear_bench

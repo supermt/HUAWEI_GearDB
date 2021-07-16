@@ -321,7 +321,7 @@ class MockFileGenerator {
   }
   Status AddMockFile(const stl_wrappers::KVMap& contents, int level = 2,
                      int l2_position = VersionStorageInfo::l2_large_tree_index);
-  void TriggerCompaction(bool* triggered);
+  Status TriggerCompaction(bool* triggered);
   void NewDB(bool use_existing_data);
   void FreeDB();
   Status CreateFileByKeyRange(uint64_t smallest_key, uint64_t largest_key,

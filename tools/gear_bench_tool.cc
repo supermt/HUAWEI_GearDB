@@ -122,14 +122,17 @@ DEFINE_int32(threads, 1, "Number of concurrent threads to run.");
 DEFINE_uint64(write_buffer_size, 500000,
               "Size of Memtable, each flush will directly create a l2 small "
               "tree spanning in the entire key space");
+DEFINE_uint64(max_compaction_bytes, 10000000u,
+              "max compaction, too small value will cut the SSTables into very "
+              "small pieces.");
 static ROCKSDB_NAMESPACE::Env* FLAGS_env = ROCKSDB_NAMESPACE::Env::Default();
-DEFINE_int64(report_interval_seconds, 0,
-             "If greater than zero, it will write simple stats in CVS format "
-             "to --report_file every N seconds");
-
-DEFINE_string(report_file, "report.csv",
-              "Filename where some simple stats are reported to (if "
-              "--report_interval_seconds is bigger than 0)");
+// DEFINE_int64(report_interval_seconds, 0,
+//               "If greater than zero, it will write simple stats in CVS format
+//               " "to --report_file every N seconds");
+//
+//  DEFINE_string(report_file, "report.csv",
+//                "Filename where some simple stats are reported to (if "
+//                "--report_interval_seconds is bigger than 0)");
 DEFINE_string(index_dir_prefix, "index", "the index directory");
 DEFINE_bool(print_data, false, "print out the keys with in HEX mode");
 
@@ -153,18 +156,11 @@ void constant_options(Options& opt) {
 void ConfigByGFLAGS(Options& opt) {
   opt.create_if_missing = !FLAGS_use_existing_data;
   opt.env = FLAGS_env;
-}
-
-uint64_t max_key_num() {
-  // TODO: fill the function by reading through all the SSTables in L2
-  return std::numeric_limits<uint64_t>::max();
-}
-
-void StartBenchmark(Options& start_options) {
-  //  BenchMark bench;
-  //  // TODO: maybe we need to add the Open() function for gear compaction
-  //  std::cout << "start gear_table_tool" << std::endl;
-  //  bench.GenerateDB(start_options);
+  opt.write_buffer_size = FLAGS_write_buffer_size;
+  opt.max_background_jobs = FLAGS_threads + 1;
+  opt.index_dir_prefix = FLAGS_index_dir_prefix;
+  opt.max_compaction_bytes =
+      std::max(FLAGS_max_compaction_bytes, FLAGS_write_buffer_size * 10);
 }
 
 void PrintFullTree(ColumnFamilyData* cfd) {
@@ -200,6 +196,7 @@ int gear_bench(int argc, char** argv) {
   //
   Options basic_options = BootStrap(argc, argv);
   constant_options(basic_options);
+  ConfigByGFLAGS(basic_options);
   L2SmallTreeCreator l2_small_gen =
       L2SmallTreeCreator(FLAGS_db + "l2_small.sst", basic_options, FLAGS_env,
                          FLAGS_print_data, FLAGS_delete_new_files);
@@ -253,19 +250,17 @@ int gear_bench(int argc, char** argv) {
             std::min(FLAGS_write_buffer_size, largest - smallest), FLAGS_seed,
             SpanningKeyGenerator::kUniform);
         content = l2_small_key_gen.GenerateContent(&key_gen, &seq);
-        // add to the level-1, skip the overlapping checking
-        // TODO: find out which is better
         Status s = mock_db.AddMockFile(content, 2,
                                        VersionStorageInfo::l2_small_tree_index);
-        //
-        std::cout << s.ToString() << std::endl;
+        assert(s.ok());
       }
       cfd = mock_db.versions_->GetColumnFamilySet()->GetDefault();
       PrintFullTree(cfd);
       // TODO: finish the compaction trigger
+      std::cout << "Start picking the Compaction" << std::endl;
       mock_db.TriggerCompaction(&compaction_triggered);
-      std::cout << "Compaction triggered :" << ToString(compaction_triggered)
-                << std::endl;
+      cfd = mock_db.versions_->GetColumnFamilySet()->GetDefault();
+      //      PrintFullTree(cfd);
       mock_db.FreeDB();
     } else if (name == "generate") {
       mock_db.NewDB(FLAGS_use_existing_data);
