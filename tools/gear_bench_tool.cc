@@ -117,7 +117,6 @@ DEFINE_int32(key_size, 15, "size of each key");
 DEFINE_int32(value_size, 10, "size of each value");
 
 // DB column settings
-DEFINE_int32(num_column_families, 1, "Number of Column Families to use.");
 DEFINE_int32(threads, 1, "Number of concurrent threads to run.");
 DEFINE_uint64(write_buffer_size, 500000,
               "Size of Memtable, each flush will directly create a l2 small "
