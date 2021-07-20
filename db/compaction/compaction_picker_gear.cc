@@ -83,9 +83,9 @@ void GearCompactionBuilder::BuildTreeLevelMap() {
         (int)pow(mutable_cf_options_.level0_file_num_compaction_trigger, level);
     temp.clear();
 
-//    uint64_t total_compensated_size = 0U;
-//    uint64_t total_size = 0U;
-//    bool being_compacted = false;
+    //    uint64_t total_compensated_size = 0U;
+    //    uint64_t total_size = 0U;
+    //    bool being_compacted = false;
     IndexTree current_node(level, nullptr, 0, 0, false);
     for (FileMetaData* f : vstorage_->LevelFiles(level)) {
       if (current_node.AddFileToFdList(f, file_num_limit)) {
@@ -482,7 +482,25 @@ Compaction* GearCompactionBuilder::PickDeleteTriggeredCompaction() {
       score_, false /* deletion_compaction */,
       CompactionReason::kFilesMarkedForCompaction);
 }
-
+int GearCompactionBuilder::PickOverlappedL2SSTs(
+    CompactionInputFiles& input_bucket) {
+  CompactionInputFiles l2_small_tree;
+  int last_level = vstorage_->num_levels() - 1;
+  l2_small_tree.level = last_level;
+  InternalKey smallest, largest;
+  for (auto file : vstorage_->LevelFiles(vstorage_->num_levels() - 1)) {
+    if (file->l2_position == VersionStorageInfo::l2_small_tree_index) {
+      l2_small_tree.files.push_back(file);
+      input_bucket.files.push_back(file);
+    } else if (file->l2_position == VersionStorageInfo::l2_large_tree_index) {
+    } else
+      assert(false);
+  }
+  picker_->GetRange(l2_small_tree, &smallest, &largest);
+  vstorage_->GetOverlappingInputs(last_level, &smallest, &largest,
+                                  &input_bucket.files);
+  return input_bucket.files.size();
+}
 Compaction* GearCompactionBuilder::PickCompactionToOldest(
     size_t start_index, CompactionReason compaction_reason) {
   assert(start_index < sorted_runs_.size());
@@ -496,36 +514,25 @@ Compaction* GearCompactionBuilder::PickCompactionToOldest(
     inputs[i].level = i + start_level;  // here we should not modify the level.
   }
 
-  for (size_t loop = start_index; loop < sorted_runs_.size(); loop++) {
-    auto& picking_sr = sorted_runs_[loop];
-    if (picking_sr.level == 0) {
-      FileMetaData* f = picking_sr.file;
-      inputs[0].files.push_back(f);
-    } else {
-      auto& files = inputs[picking_sr.level - start_level].files;
-      for (auto* f : vstorage_->LevelFiles(picking_sr.level)) {
-        files.push_back(f);
+  if (compaction_reason == CompactionReason::kGearCompactionAllInOne) {
+    int num_picked_files = PickOverlappedL2SSTs(inputs[0]);
+    ROCKS_LOG_BUFFER(log_buffer_,
+                     "[%s] Gear : picked %d files to AllInOneCompaction",
+                     cf_name_.c_str(), num_picked_files);
+  } else {
+    for (size_t loop = start_index; loop < sorted_runs_.size(); loop++) {
+      auto& picking_sr = sorted_runs_[loop];
+      if (picking_sr.level == 0) {
+        FileMetaData* f = picking_sr.file;
+        inputs[0].files.push_back(f);
+      } else {
+        auto& files = inputs[picking_sr.level - start_level].files;
+        for (auto* f : vstorage_->LevelFiles(picking_sr.level)) {
+          files.push_back(f);
+        }
       }
     }
-
-    std::string comp_reason_print_string;
-    if (compaction_reason == CompactionReason::kPeriodicCompaction) {
-      comp_reason_print_string = "periodic compaction";
-    } else if (compaction_reason ==
-               CompactionReason::kUniversalSizeAmplification) {
-      comp_reason_print_string = "size amp";
-    } else if (compaction_reason == CompactionReason::kGearCompactionAllInOne) {
-      comp_reason_print_string = "compaction l2 in one large tree";
-    } else {
-      assert(false);
-    }
-
-    char file_num_buf[256];
-    picking_sr.DumpSizeInfo(file_num_buf, sizeof(file_num_buf), loop);
-    ROCKS_LOG_BUFFER(log_buffer_, "[%s] Gear : %s picking %s", cf_name_.c_str(),
-                     comp_reason_print_string.c_str(), file_num_buf);
   }
-
   // output files at the bottom most level, unless it's reserved
   int output_level = vstorage_->num_levels() - 1;
   // last level is reserved for the files ingested behind
@@ -590,13 +597,13 @@ Compaction* GearCompactionBuilder::PickCompactionForLevel(int level) {
   int start_level = level;
   int output_level = level + 1;
   // no longer check the overlapping states, since HUAWEI allows overlapping.
-//  if (!picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
-//                                       &inputs[start_level]) ||
-//      picker_->FilesRangeOverlapWithCompaction(inputs, output_level)) {
-//    // A locked (pending compaction) input-level file was pulled in due to
-//    // user-key overlap.
-//    return nullptr;
-//  }
+  //  if (!picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+  //                                       &inputs[start_level]) ||
+  //      picker_->FilesRangeOverlapWithCompaction(inputs, output_level)) {
+  //    // A locked (pending compaction) input-level file was pulled in due to
+  //    // user-key overlap.
+  //    return nullptr;
+  //  }
   autovector<std::pair<int, FileMetaData*>> level_files;
   if (start_level == 0 && !picker_->IsLevel0CompactionInProgress()) {
     // try to collect as many l0 files as possible.
@@ -604,34 +611,34 @@ Compaction* GearCompactionBuilder::PickCompactionForLevel(int level) {
                                    nullptr);
   }
   // use the compaction_picker to collect the range
-//  InternalKey left_key, right_key;
-//  picker_->GetRange(inputs, &left_key, &right_key);
-//  // use the version storage info to search the overlapping files.
-//  // changed here, we won't create a new output_level input, instead,
-//  // we use the target level files in the inputs.
-//  CompactionInputFiles* output_level_inputs = &inputs[output_level];
-//  //  output_level_inputs.level = output_level;
-//  vstorage_->GetOverlappingInputs(output_level, &left_key, &right_key,
-//                                  &output_level_inputs->files);
-//  bool overlapped_upper_files = false;
-//  bool overlapped_files_cleared = true;
-//  if (!output_level_inputs->empty()) {
-//    overlapped_upper_files = true;
-//    overlapped_files_cleared = picker_->ExpandInputsToCleanCut(
-//        cf_name_, vstorage_, output_level_inputs);
-//  }
-//
-//  if (overlapped_upper_files && !overlapped_files_cleared) {
-//    // if overlapped with upper files, we collect more files
-//    return nullptr;
-//  }
-//
-//  bool overlapped_with_compactions =
-//      picker_->FilesRangeOverlapWithCompaction(inputs, output_level);
-//
-//  if (overlapped_with_compactions) {
-//    return nullptr;
-//  }
+  //  InternalKey left_key, right_key;
+  //  picker_->GetRange(inputs, &left_key, &right_key);
+  //  // use the version storage info to search the overlapping files.
+  //  // changed here, we won't create a new output_level input, instead,
+  //  // we use the target level files in the inputs.
+  //  CompactionInputFiles* output_level_inputs = &inputs[output_level];
+  //  //  output_level_inputs.level = output_level;
+  //  vstorage_->GetOverlappingInputs(output_level, &left_key, &right_key,
+  //                                  &output_level_inputs->files);
+  //  bool overlapped_upper_files = false;
+  //  bool overlapped_files_cleared = true;
+  //  if (!output_level_inputs->empty()) {
+  //    overlapped_upper_files = true;
+  //    overlapped_files_cleared = picker_->ExpandInputsToCleanCut(
+  //        cf_name_, vstorage_, output_level_inputs);
+  //  }
+  //
+  //  if (overlapped_upper_files && !overlapped_files_cleared) {
+  //    // if overlapped with upper files, we collect more files
+  //    return nullptr;
+  //  }
+  //
+  //  bool overlapped_with_compactions =
+  //      picker_->FilesRangeOverlapWithCompaction(inputs, output_level);
+  //
+  //  if (overlapped_with_compactions) {
+  //    return nullptr;
+  //  }
 
   uint32_t path_id = GetPathId(ioptions_, mutable_cf_options_, output_level);
 

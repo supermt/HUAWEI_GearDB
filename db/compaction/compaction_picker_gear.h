@@ -200,6 +200,7 @@ class GearCompactionBuilder {
     return p;
   }
   Compaction* PickCompactionLastLevel();
+  int PickOverlappedL2SSTs(CompactionInputFiles& input_bucket);
   Compaction* PickCompactionToOldest(size_t start_index,
                                      CompactionReason compaction_reason);
   Compaction* PickDeleteTriggeredCompaction();

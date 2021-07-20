@@ -1,0 +1,69 @@
+@startuml
+'https://plantuml.com/class-diagram
+
+class GearTableFactory{
+std::unique_ptr<GearTableBuilder> table_builder;
++Status NewTableBuilder(Options opt,WritableFileWriter *write);
++Status NewTableReader(Options opt, TableReader* reader, FileReader* &&file);
+}
+class GearTableBuilder{
+string key_block;
+string value_block;
++ Status Add(Slice key)
++ Status Finish()
+}
+class GearTableReader{
++ GearIterator NewIterator()
++ Status Open()
++ Status Get(Slice key)
+}
+class DataPage{
+    string[] value_array_;
+    string[] key_array_;
+    DataPage(data_block_num,entry_count,
+    key_array_length,value_array_length)
+}
+class DataPageContainer {
+uint64_t total_data_pages;
+DataPage[] data_page_list;
+pair<uint32_t, uint32_t>[] data_page_offset;
+}
+class GearTableFileReader{
+DataPageContainer content
+LoadDataPage(int blkid)
+}
+class GearIterator{
+Seek()
+Prev()
++Next()
+SeekToFirst()
+Valid()
+key()
+value()
+}
+class GearIndexBuilder
+class GearIndex{
+    GearIndexBuilder idx_builder
+}
+class POSIX_FS{
+int fd_
+uint_32 offset_
+pread()
+pwrite()
+popen()
+}
+
+GearTableFactory <--GearTableBuilder
+GearTableFactory <--GearTableReader
+GearTableReader <--GearTableFileReader
+GearTableReader <- GearIterator
+GearIterator <- GearTableFileReader
+GearTableFileReader <- POSIX_FS
+GearTableBuilder <-- GearIndex
+GearTableReader <-- GearIndex
+GearIndexBuilder <- btree_builder
+btree_builder <-POSIX_FS
+GearIndex <-- GearIndexBuilder
+GearTableFileReader <- DataPageContainer
+DataPage --> DataPageContainer
+@enduml
