@@ -193,6 +193,10 @@ Compaction* GearCompactionPicker::PickCompaction(
   GearCompactionBuilder builder(ioptions_, icmp_, cf_name, mutable_cf_options,
                                 vstorage, this, log_buffer, first_l2_size_ratio,
                                 upper_level_size_ratio);
+  if (earliest_memtable_seqno == kMaxSequenceNumber) {
+    // No matter how, we need to trigger a deep compaction
+    builder.force_compaction_ = true;
+  }
   return builder.PickCompaction();
 }
 
@@ -253,7 +257,8 @@ Compaction* GearCompactionBuilder::PickCompaction() {
   // small tree is larger than a certain threshold.
 
   Compaction* c = nullptr;
-  if (L2SmallTreeIsFilled() && !picker_->IsLevel0CompactionInProgress()) {
+  if ((L2SmallTreeIsFilled() || force_compaction_) &&
+      !picker_->IsLevel0CompactionInProgress()) {
     // if the last level compaction is in progress, we still don't need to
     // collect any files.
     c = PickCompactionLastLevel();
@@ -488,13 +493,14 @@ int GearCompactionBuilder::PickOverlappedL2SSTs(
   int last_level = vstorage_->num_levels() - 1;
   l2_small_tree.level = last_level;
   InternalKey smallest, largest;
-  for (auto file : vstorage_->LevelFiles(vstorage_->num_levels() - 1)) {
+  for (auto file : vstorage_->LevelFiles(last_level)) {
     if (file->l2_position == VersionStorageInfo::l2_small_tree_index) {
       l2_small_tree.files.push_back(file);
       input_bucket.files.push_back(file);
     } else if (file->l2_position == VersionStorageInfo::l2_large_tree_index) {
-    } else
+    } else {
       assert(false);
+    }
   }
   picker_->GetRange(l2_small_tree, &smallest, &largest);
   vstorage_->GetOverlappingInputs(last_level, &smallest, &largest,

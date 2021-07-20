@@ -270,6 +270,8 @@ class MockFileGenerator {
   std::shared_ptr<MergeOperator> merge_op_;
   std::unique_ptr<SstFileWriter> writer_;
   ErrorHandler error_handler_;
+  const Comparator* ucmp_;
+  InternalKeyComparator icmp_;
   // function field.
   MockFileGenerator(Env* env, const std::string& db_name, Options& opt)
       : env_(env),
@@ -286,7 +288,9 @@ class MockFileGenerator {
                                  &write_controller_, nullptr)),
         shutting_down_(false),
         preserve_deletes_seqnum_(0),
-        error_handler_(nullptr, db_options_, &mutex_) {
+        error_handler_(nullptr, db_options_, &mutex_),
+        ucmp_(BytewiseComparator()),
+        icmp_(ucmp_) {
     env_->CreateDirIfMissing(db_name);
     env_->CreateDir(db_name + opt.index_dir_prefix);
     db_options_.env = env_;
@@ -308,7 +312,19 @@ class MockFileGenerator {
     meta.fd = FileDescriptor(file_number, 0, 0);
     return TableFileName(db_paths, meta.fd.GetNumber(), meta.fd.GetPathId());
   }
-
+  void PrintFullTree(ColumnFamilyData* cfd) {
+    for (int i = 0; i < 3; i++) {
+      std::cout << "level: " << i << " : " << std::endl;
+      for (auto file : cfd->current()->storage_info()->LevelFiles(i)) {
+        std::cout << "File Number: " << file->fd.GetNumber()
+                  << ", file's smallest key: "
+                  << file->smallest.user_key().ToString(true)
+                  << ", file's largest key: "
+                  << file->smallest.user_key().ToString(true)
+                  << ", l2 potions: " << file->l2_position << std::endl;
+      }
+    }
+  }
   static std::string KeyStr(const std::string& user_key,
                             const SequenceNumber seq_num, const ValueType t) {
     return InternalKey(user_key, seq_num, t).Encode().ToString();
@@ -321,7 +337,7 @@ class MockFileGenerator {
   }
   Status AddMockFile(const stl_wrappers::KVMap& contents, int level = 2,
                      int l2_position = VersionStorageInfo::l2_large_tree_index);
-  Status TriggerCompaction(bool* triggered);
+  Status TriggerCompaction();
   void NewDB(bool use_existing_data);
   void FreeDB();
   Status CreateFileByKeyRange(uint64_t smallest_key, uint64_t largest_key,

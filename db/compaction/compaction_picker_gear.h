@@ -125,7 +125,8 @@ class GearCompactionBuilder {
         picker_(picker),
         log_buffer_(log_buffer),
         first_l2_size_ratio_(first_l2_size_ratio),
-        upper_level_file_size_ratio_(upper_level_file_size_ratio) {}
+        upper_level_file_size_ratio_(upper_level_file_size_ratio),
+        force_compaction_(false) {}
   // function section
  public:
   Compaction* PickCompaction();
@@ -225,6 +226,7 @@ class GearCompactionBuilder {
                vstorage_->num_levels() - 1);
   }
   void BuildTreeLevelMap();
+  bool force_compaction_;
 };
 
 struct InputFileInfo {

@@ -70,6 +70,15 @@ void MockFileGenerator::ReOpenDB() {
   cfd_ = versions_->GetColumnFamilySet()->GetDefault();
   ColumnFamilyHandle* handle =
       new ColumnFamilyHandleImpl(cfd_, impl, impl->mutex());
+
+  for (auto file : versions_->GetColumnFamilySet()
+                       ->GetDefault()
+                       ->current()
+                       ->storage_info()
+                       ->LevelFiles(options_.num_levels - 1)) {
+    file->l2_position = VersionStorageInfo::l2_large_tree_index;
+  }
+
   writer_.reset(new SstFileWriter(env_options_, options_, handle));
 }
 
@@ -159,7 +168,7 @@ Status MockFileGenerator::AddMockFile(const stl_wrappers::KVMap& contents,
     writer_->Put(key.user_key, value);
   }
   s = writer_->Finish();
-  int size = writer_->FileSize();
+  //  int size = writer_->FileSize();
   if (!s.ok()) {
     return s;
   }
@@ -179,9 +188,8 @@ Status MockFileGenerator::AddMockFile(const stl_wrappers::KVMap& contents,
   return s;
 }
 
-Status MockFileGenerator::TriggerCompaction(bool* triggered) {
+Status MockFileGenerator::TriggerCompaction() {
   cfd_ = versions_->GetColumnFamilySet()->GetDefault();
-  *triggered = cfd_->NeedsCompaction();
   Status s;
   // Trigger a compaction manually
   //  std::vector<CompactionInputFiles> input_files;
@@ -190,23 +198,44 @@ Status MockFileGenerator::TriggerCompaction(bool* triggered) {
   for (auto file : cfd_->current()->storage_info()->LevelFiles(2)) {
     l2_input_files.files.push_back(file);
   }
-  std::cout << options_.max_compaction_bytes << std::endl;
-  std::cout << options_.write_buffer_size << std::endl;
-  Compaction compaction(cfd_->current()->storage_info(), *cfd_->ioptions(),
-                        *cfd_->GetLatestMutableCFOptions(), {l2_input_files}, 2,
-                        options_.write_buffer_size * 100,
-                        options_.max_compaction_bytes, 0, kNoCompression,
-                        cfd_->GetLatestMutableCFOptions()->compression_opts,
-                        options_.max_background_jobs, {}, true);
-  compaction.SetInputVersion(cfd_->current());
+  GearCompactionPicker gear_picker(*cfd_->ioptions(), &icmp_);
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
+  //  Compaction* compaction_ptr =
+  //      cfd_->PickCompaction(this->mutable_cf_options_, &log_buffer);
+  Compaction* compaction_ptr = gear_picker.PickCompaction(
+      cfd_->GetName(), *cfd_->GetLatestMutableCFOptions(),
+      cfd_->current()->storage_info(), &log_buffer);
+  assert(compaction_ptr != nullptr);
+
+  //  if (compaction_ptr == nullptr) {
+  //    std::cout << "No need for a compaction run, trigger a compaction
+  //    manually"
+  //              << std::endl;
+  //  } else {
+  //    Compaction compaction(cfd_->current()->storage_info(),
+  //    *cfd_->ioptions(),
+  //                          *cfd_->GetLatestMutableCFOptions(),
+  //                          {l2_input_files}, 2, options_.write_buffer_size *
+  //                          100, options_.max_compaction_bytes, 0,
+  //                          kNoCompression,
+  //                          cfd_->GetLatestMutableCFOptions()->compression_opts,
+  //                          options_.max_background_jobs, {}, true);
+  //    compaction_ptr = &compaction;
+  //  }
+
+  compaction_ptr->SetInputVersion(cfd_->current());
+  for (auto level : *compaction_ptr->inputs()) {
+    if (level.files.size() != 0)
+      std::cout << "Collected files in level " << level.level << " : "
+                << level.files.size() << std::endl;
+  }
   std::vector<SequenceNumber> snapshots = {};
   SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber;
   mutex_.Lock();
   EventLogger event_logger(db_options_.info_log.get());
   SnapshotChecker* snapshot_checker = nullptr;
   CompactionJob compaction_job(
-      0, &compaction, db_options_, env_options_, versions_.get(),
+      0, compaction_ptr, db_options_, env_options_, versions_.get(),
       &shutting_down_, preserve_deletes_seqnum_, &log_buffer, nullptr, nullptr,
       nullptr, &mutex_, &error_handler_, snapshots,
       earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
@@ -215,7 +244,6 @@ Status MockFileGenerator::TriggerCompaction(bool* triggered) {
 
   compaction_job.Prepare();
   mutex_.Unlock();
-  std::cout << "All in One Compaction Triggered" << std::endl;
   s = compaction_job.Run();
   assert(s.ok());
   mutex_.Lock();

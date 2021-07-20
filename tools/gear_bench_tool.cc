@@ -155,25 +155,12 @@ void constant_options(Options& opt) {
 void ConfigByGFLAGS(Options& opt) {
   opt.create_if_missing = !FLAGS_use_existing_data;
   opt.env = FLAGS_env;
-  opt.write_buffer_size = FLAGS_write_buffer_size;
+  opt.write_buffer_size =
+      FLAGS_write_buffer_size * (FLAGS_key_size + FLAGS_value_size);
   opt.max_background_jobs = FLAGS_threads + 1;
   opt.index_dir_prefix = FLAGS_index_dir_prefix;
   opt.max_compaction_bytes =
       std::max(FLAGS_max_compaction_bytes, FLAGS_write_buffer_size * 10);
-}
-
-void PrintFullTree(ColumnFamilyData* cfd) {
-  for (int i = 0; i < 3; i++) {
-    std::cout << "level: " << i << " : " << std::endl;
-    for (auto file : cfd->current()->storage_info()->LevelFiles(i)) {
-      std::cout << "File Number: " << file->fd.GetNumber()
-                << ", file's smallest key: "
-                << file->smallest.user_key().ToString(true)
-                << ", file's largest key: "
-                << file->smallest.user_key().ToString(true) << std::endl;
-      file->l2_position = VersionStorageInfo::l2_large_tree_index;
-    }
-  }
 }
 
 Options BootStrap(int argc, char** argv) {
@@ -216,16 +203,8 @@ int gear_bench(int argc, char** argv) {
       std::cout << "Start the merging" << std::endl;
       mock_db.ReOpenDB();
       // Validate the version.
-      auto cfd = mock_db.versions_->GetColumnFamilySet()->GetDefault();
-      PrintFullTree(cfd);
-      // trigger a compaction before adding new files.
       bool compaction_triggered;
-      mock_db.TriggerCompaction(&compaction_triggered);
-      std::cout << "Compaction triggered: " << compaction_triggered
-                << std::endl;
 
-      cfd = mock_db.versions_->GetColumnFamilySet()->GetDefault();
-      PrintFullTree(cfd);
       uint64_t total_key_range = FLAGS_distinct_num - FLAGS_min_value;
       uint64_t merge_key_range = total_key_range * FLAGS_span_range;
       uint64_t single_file_range = merge_key_range / FLAGS_l2_small_tree_num;
@@ -242,7 +221,8 @@ int gear_bench(int argc, char** argv) {
         stl_wrappers::KVMap content;
         uint64_t smallest = FLAGS_min_value + i * single_file_range;
         uint64_t largest = FLAGS_min_value + (i + 1) * single_file_range - 1;
-        std::cout << smallest << "," << largest << std::endl;
+        std::cout << "New generated file range:" << smallest << "," << largest
+                  << std::endl;
         largest = std::min(largest, FLAGS_distinct_num);
         SpanningKeyGenerator l2_small_key_gen(
             smallest, largest,
@@ -253,13 +233,9 @@ int gear_bench(int argc, char** argv) {
                                        VersionStorageInfo::l2_small_tree_index);
         assert(s.ok());
       }
-      cfd = mock_db.versions_->GetColumnFamilySet()->GetDefault();
-      PrintFullTree(cfd);
-      // TODO: finish the compaction trigger
-      std::cout << "Start picking the Compaction" << std::endl;
-      mock_db.TriggerCompaction(&compaction_triggered);
-      cfd = mock_db.versions_->GetColumnFamilySet()->GetDefault();
-      //      PrintFullTree(cfd);
+      //      mock_db.PrintFullTree(cfd);
+      mock_db.TriggerCompaction();
+      //      mock_db.PrintFullTree(cfd);
       mock_db.FreeDB();
     } else if (name == "generate") {
       mock_db.NewDB(FLAGS_use_existing_data);
