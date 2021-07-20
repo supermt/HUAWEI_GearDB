@@ -413,10 +413,17 @@ void GearTableIterator::Next() {
 }
 
 void GearTableIterator::Prev() {
-  visited_key_counts_--;
-  if (visited_key_counts_ < table_->file_reader_->EntryCountStartPosition()) {
-    visited_key_counts_ = table_->file_reader_->EntryCountStartPosition();
+  if (visited_key_counts_ < total_entry_count) {
+    Slice tmp_slice;
+    ParsedInternalKey parsed_key;
+    status_ = table_->file_reader_->GetKey(visited_key_counts_, &parsed_key,
+                                           &key_, &value_);
+    if (!status_.ok()) {
+      //      visited_key_counts_ = total_entry_count;
+      SetToInvalid();
+    }
   }
+  visited_key_counts_--;
 }
 
 Slice GearTableIterator::key() const {
