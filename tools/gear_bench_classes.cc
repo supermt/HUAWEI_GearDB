@@ -202,25 +202,29 @@ Status MockFileGenerator::TriggerCompaction() {
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
   //  Compaction* compaction_ptr =
   //      cfd_->PickCompaction(this->mutable_cf_options_, &log_buffer);
+  auto start_micro = env_->NowMicros();
+  std::cout << "Start picking compaction files at: " << start_micro
+            << std::endl;
   Compaction* compaction_ptr = gear_picker.PickCompaction(
       cfd_->GetName(), *cfd_->GetLatestMutableCFOptions(),
       cfd_->current()->storage_info(), &log_buffer);
   assert(compaction_ptr != nullptr);
+  std::cout << "Pick compaction complete at: " << env_->NowMicros()
+            << std::endl;
 
-  //  if (compaction_ptr == nullptr) {
-  //    std::cout << "No need for a compaction run, trigger a compaction
-  //    manually"
-  //              << std::endl;
-  //  } else {
-  //    Compaction compaction(cfd_->current()->storage_info(),
-  //    *cfd_->ioptions(),
-  //                          *cfd_->GetLatestMutableCFOptions(),
-  //                          {l2_input_files}, 2, options_.write_buffer_size *
-  //                          100, options_.max_compaction_bytes, 0,
-  //                          kNoCompression,
-  //                          cfd_->GetLatestMutableCFOptions()->compression_opts,
-  //                          options_.max_background_jobs, {}, true);
-  //    compaction_ptr = &compaction;
+  if (compaction_ptr == nullptr) {
+    std::cout << "No need for a compaction run, trigger a compaction manually "
+              << std::endl;
+    Compaction compaction(cfd_->current()->storage_info(), *cfd_->ioptions(),
+                          *cfd_->GetLatestMutableCFOptions(), {l2_input_files},
+                          2, options_.write_buffer_size * 100,
+                          options_.max_compaction_bytes, 0, kNoCompression,
+                          cfd_->GetLatestMutableCFOptions()->compression_opts,
+                          options_.max_background_jobs, {}, true);
+    compaction_ptr = &compaction;
+  }
+  //    else {
+  //
   //  }
 
   compaction_ptr->SetInputVersion(cfd_->current());
@@ -234,6 +238,8 @@ Status MockFileGenerator::TriggerCompaction() {
   mutex_.Lock();
   EventLogger event_logger(db_options_.info_log.get());
   SnapshotChecker* snapshot_checker = nullptr;
+  std::cout << "Start the compaction job at: " << env_->NowMicros()
+            << std::endl;
   CompactionJob compaction_job(
       0, compaction_ptr, db_options_, env_options_, versions_.get(),
       &shutting_down_, preserve_deletes_seqnum_, &log_buffer, nullptr, nullptr,
@@ -243,11 +249,13 @@ Status MockFileGenerator::TriggerCompaction() {
       Env::Priority::USER);
 
   compaction_job.Prepare();
+  std::cout << "Compaction job prepared at: " << env_->NowMicros() << std::endl;
   mutex_.Unlock();
   s = compaction_job.Run();
   assert(s.ok());
   mutex_.Lock();
   s = compaction_job.Install(*cfd_->GetLatestMutableCFOptions());
+  std::cout << "Compaction Finished at :" << env_->NowMicros() << std::endl;
   assert(s.ok());
   mutex_.Unlock();
   return s;
@@ -263,9 +271,10 @@ Status MockFileGenerator::CreateFileByKeyRange(uint64_t smallest_key,
   std::string value = "1234567890";
   for (uint64_t i = smallest_key; i < largest_key; i++) {
     auto key = key_gen->GenerateKeyFromInt(i);
-    InternalKey ikey(key, ++sequence_number, kTypeValue);
+    InternalKey ikey(key, sequence_number, kTypeValue);
     content.emplace(ikey.Encode().ToString(), value);
   }
+  sequence_number++;
   s = AddMockFile(content, 2, VersionStorageInfo::l2_large_tree_index);
   SetLastSequence(sequence_number);
   return s;

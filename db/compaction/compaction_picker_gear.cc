@@ -552,16 +552,16 @@ Compaction* GearCompactionBuilder::PickCompactionToOldest(
   // We never check size for
   // compaction_options_universal.compression_size_percent,
   // because we always compact all the files, so always compress.
+  int kMaxL2Size = 10000000;
   return new Compaction(
       vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
-      output_level,
-      MaxFileSizeForLevel(mutable_cf_options_, output_level,
-                          kCompactionStyleUniversal),
-      LLONG_MAX, path_id,
+      output_level, mutable_cf_options_.target_file_size_base,
+      mutable_cf_options_.max_compaction_bytes, path_id,
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_, start_level,
                          1, true),
       GetCompressionOptions(mutable_cf_options_, vstorage_, start_level, true),
-      0, {}, false, score_, false, compaction_reason);
+      ioptions_.max_subcompactions, {}, false, score_, false,
+      compaction_reason);
 }
 
 Compaction* GearCompactionBuilder::PickCompactionForLevel(int level) {
