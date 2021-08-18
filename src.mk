@@ -154,7 +154,10 @@ LIB_SOURCES =                                                   \
   table/block_fetcher.cc                             		    \
   table/gear_block/gear_table_builder.cc						\
   table/gear_block/gear_table_factory.cc						\
+  table/gear_block/gear_table_file_reader.cc						\
+  table/gear_block/gear_table_index.cc						\
   table/gear_block/gear_table_reader.cc							\
+  table/gear_block/btree_index/persistent_btree.cc				\
   table/cuckoo/cuckoo_table_builder.cc                          \
   table/cuckoo/cuckoo_table_factory.cc                          \
   table/cuckoo/cuckoo_table_reader.cc                           \
@@ -286,6 +289,10 @@ MOCK_LIB_SOURCES =                                              \
 
 BENCH_LIB_SOURCES =                                             \
   tools/db_bench_tool.cc                                        \
+
+GEAR_BENCH_LIB_SOURCES=											\
+  tools/gear_bench_classes.cc											\
+  tools/gear_bench_tool.cc										\
 
 STRESS_LIB_SOURCES =                                            \
   db_stress_tool/batched_ops_stress.cc                         \
@@ -437,6 +444,7 @@ MAIN_SOURCES =                                                          \
   third-party/gtest-1.8.1/fused-src/gtest/gtest-all.cc                  \
   tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc         \
   tools/block_cache_analyzer/block_cache_trace_analyzer_tool.cc         \
+  tools/gear_bench.cc													\
   tools/db_bench.cc                                                     \
   tools/db_bench_tool_test.cc                                           \
   tools/db_sanity_test.cc                                               \

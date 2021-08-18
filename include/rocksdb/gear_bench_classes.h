@@ -220,7 +220,7 @@ class L2SmallTreeCreator {
                  const std::vector<std::string>& keys) {
     ReadOptions ropts;
     SstFileReader reader(options_);
-    assert(reader.Open(file_name).ok());
+    reader.Open(file_name);
     std::unique_ptr<Iterator> iter(reader.NewIterator(ropts));
     iter->SeekToFirst();
     for (size_t i = 0; i < keys.size(); i++) {
@@ -285,12 +285,13 @@ class MockFileGenerator {
         error_handler_(nullptr, db_options_, &mutex_),
         ucmp_(BytewiseComparator()),
         icmp_(ucmp_) {
+    auto mk_result = system(("mkdir -p " + db_name).c_str());
+    if (mk_result) exit(-1);
     env_->CreateDirIfMissing(db_name);
     env_->CreateDir(db_name + opt.index_dir_prefix);
     env_->SetBackgroundThreads(db_options_.max_subcompactions);
     db_options_.env = env_;
     db_options_.fs = fs_;
-
     //    GearTableOptions gearTableOptions;
     //    gearTableOptions.encoding_type = kPlain;
     //    gearTableOptions.user_key_len = 15;
@@ -301,10 +302,9 @@ class MockFileGenerator {
   }
   std::string GenerateFileName(uint64_t file_number) {
     FileMetaData meta;
-    std::vector<DbPath> db_paths;
-    db_paths.emplace_back(dbname_, std::numeric_limits<uint64_t>::max());
     meta.fd = FileDescriptor(file_number, 0, 0);
-    return TableFileName(db_paths, meta.fd.GetNumber(), meta.fd.GetPathId());
+    return TableFileName(this->db_options_.db_paths, meta.fd.GetNumber(),
+                         meta.fd.GetPathId());
   }
   void PrintFullTree(ColumnFamilyData* cfd) {
     for (int i = 0; i < 3; i++) {

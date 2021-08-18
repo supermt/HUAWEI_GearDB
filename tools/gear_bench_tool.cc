@@ -99,7 +99,7 @@ using GFLAGS_NAMESPACE::SetUsageMessage;
 //                        --max_background_compactions=4
 //                            --target_file_size_base=500000
 DEFINE_uint64(seed, 0, "random seed");
-DEFINE_string(benchmark, "",
+DEFINE_string(benchmark, "generate,merge",
               "available values: "
               "[\'generate,merge\'] for generate and merge,\n"
               " \'generate\' for creat l2 big tree only \n"
@@ -110,7 +110,7 @@ DEFINE_string(benchmark, "",
 // directory settings.
 DEFINE_bool(use_existing_data, false, "Use the existing database or not");
 DEFINE_bool(delete_new_files, true, "Delete L2 small tree after bench");
-DEFINE_string(db, "", "The database path");
+DEFINE_string(db, "/tmp/rocksdb/gear", "The database path");
 DEFINE_string(table_format, "gear", "available formats: gear or normal");
 
 // key range settings.
@@ -203,9 +203,7 @@ Options BootStrap(int argc, char** argv) {
 }
 
 int gear_bench(int argc, char** argv) {
-  //
   Options basic_options = BootStrap(argc, argv);
-  basic_options.info_log.reset(new StderrLogger());
   constant_options(basic_options);
   ConfigByGFLAGS(basic_options);
   L2SmallTreeCreator l2_small_gen =
@@ -230,7 +228,6 @@ int gear_bench(int argc, char** argv) {
       std::cout << "Start the merging" << std::endl;
       mock_db.ReOpenDB();
       // Validate the version.
-      bool compaction_triggered;
       uint64_t total_key_range = FLAGS_distinct_num - FLAGS_min_value;
       uint64_t merge_key_range = total_key_range * FLAGS_span_range;
       uint64_t single_file_range = merge_key_range / FLAGS_l2_small_tree_num;
@@ -290,7 +287,6 @@ int gear_bench(int argc, char** argv) {
             file_num * FLAGS_write_buffer_size + FLAGS_min_value;
         uint64_t largest_key = smallest_key + FLAGS_write_buffer_size - 1;
         largest_key = std::min(largest_key, FLAGS_distinct_num);
-
         mock_db.CreateFileByKeyRange(smallest_key, largest_key, &key_gen);
         std::cout << "No. " << file_num << " SST generated at "
                   << FLAGS_env->NowMicros()

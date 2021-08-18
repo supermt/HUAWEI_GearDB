@@ -55,7 +55,7 @@ static bool cmp_sha1(const uint8_t *a, const uint8_t *b) {
   return memcmp(a, b, SHA1_LENGTH);
 }
 
-static struct btree_table *alloc_table(struct btree *btree) {
+static struct btree_table *alloc_table(struct btree * /*btree*/) {
   struct btree_table *table = static_cast<btree_table *>(malloc(sizeof *table));
   memset(table, 0, sizeof *table);
   return table;
@@ -191,8 +191,8 @@ static off_t alloc_chunk(struct btree *btree, size_t len) {
       /* delete buddy information */
       memset(sha1, 0, sizeof sha1);
       *(__be64 *)sha1 = to_be64(offset);
-      off_t buddy_len = delete_table(btree, btree->free_top, sha1);
-      assert(buddy_len == static_cast<off_t>(len));
+      delete_table(btree, btree->free_top, sha1);
+      //      assert(buddy_len == static_cast<off_t>(len));
 
       btree->free_top = collapse(btree, btree->free_top);
 

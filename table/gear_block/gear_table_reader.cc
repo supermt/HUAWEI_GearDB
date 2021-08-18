@@ -131,7 +131,6 @@ GearTableReader::~GearTableReader() {}
 
 Status GearTableReader::ReadProperties(RandomAccessFileReader* file,
                                        uint64_t file_size,
-                                       const ImmutableCFOptions& ioptions,
                                        TableProperties** properties) {
   Status s;
   Slice table_prop_blocks;
@@ -183,8 +182,7 @@ Status GearTableReader::Open(const ImmutableCFOptions& ioptions,
   //  kPlainTableMagicNumber,
   //                               ioptions, &props_ptr,
   //                               true /* compression_type_missing */);
-  auto s = GearTableReader::ReadProperties(file.get(), file_size, ioptions,
-                                           &props_ptr);
+  auto s = GearTableReader::ReadProperties(file.get(), file_size, &props_ptr);
 
   std::shared_ptr<TableProperties> props(props_ptr);
   if (!s.ok()) {
@@ -222,9 +220,9 @@ Status GearTableReader::Open(const ImmutableCFOptions& ioptions,
   // PopulateIndex can add to the props, so don't store them until now
   new_reader->table_properties_ = props;
 
-  //  if (immortal_table && new_reader->file_info_.is_mmap_mode) {
-  //    new_reader->dummy_cleanable_.reset(new Cleanable());
-  //  }
+  if (immortal_table) {
+    new_reader->dummy_cleanable_.reset(new Cleanable());
+  }
 
   *table_reader = std::move(new_reader);
   return s;
@@ -242,6 +240,14 @@ InternalIterator* GearTableReader::NewIterator(
   // Auto prefix mode is not implemented in GearTable.
   //  bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek &&
   //                         !options.auto_prefix_mode;
+  if (options.auto_prefix_mode) {
+    if (arena == nullptr) {
+      return new GearTableIterator(this);
+    } else {
+      auto mem = arena->AllocateAligned(sizeof(GearTableIterator));
+      return new (mem) GearTableIterator(this);
+    }
+  }
   //  bool use_prefix_seek = false;
   // Geat table uses BTree and plain data mode no prefix seek.
   if (arena == nullptr) {
@@ -296,14 +302,18 @@ uint64_t GearTableReader::ApproximateSize(const Slice& /*start*/,
 }
 void GearTableReader::Prepare(const Slice& target) {
   // This function is used to change the target into a bloom filter's prefix
+  if (target.empty()) {
+    target.ToString();
+  }
   return;
 }
 Status GearTableReader::Get(const ReadOptions& readOptions, const Slice& target,
                             GetContext* get_context,
-                            const SliceTransform* prefix_extractor,
-                            bool skip_filters) {
+                            const SliceTransform* /*prefix_extractor*/,
+                            bool /*skip_filters*/) {
   // use the index to read the target value
   assert(target.size() == user_key_len_ + 8);
+  readOptions.iter_start_ts->ToString();
   uint32_t target_offset;
   GearTableIndexReader::IndexSearchResult searchResult =
       index_.GetOffset(target, &target_offset);

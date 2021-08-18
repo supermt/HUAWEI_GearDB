@@ -37,7 +37,7 @@ GearTableBuilder::GearTableBuilder(
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, WritableFileWriter* file, uint32_t user_key_len,
-    uint32_t user_value_len, EncodingType encoding_type,
+    uint32_t /*user_value_len*/, EncodingType encoding_type,
     const std::string& column_family_name, int target_level
     //    WritableFileWriter* index_file
     )

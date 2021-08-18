@@ -42,6 +42,8 @@ class GearTableIndexReader {
   }
 
   explicit GearTableIndexReader(std::string index_file_name) {
+    assert(!index_file_name.empty());
+    this->index_size_ = index_file_name.size();
     //    btree_open(&btree, index_file_name.c_str());
   }
 
@@ -56,7 +58,7 @@ class GearTableIndexReader {
   //  struct BtreeType : google_btree::
  private:
   uint32_t index_size_;
-    BTree btree;
+  BTree btree;
 };
 
 // the gear table index builder will create a Btree and save it into the file.
@@ -68,8 +70,7 @@ class GearTableIndexBuilder {
     std::string index_file_name =
         GearTableIndexReader::find_the_index_by_file_name(ioptions_,
                                                           ori_filename);
-    int open_result = btree_creat(&btree, index_file_name.c_str());
-    assert(open_result != -1);
+    btree_creat(&btree, index_file_name.c_str());
   }
 
   void AddKeyOffset(Slice key, uint32_t key_offset);

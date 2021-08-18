@@ -17,7 +17,8 @@ namespace ROCKSDB_NAMESPACE {
 
 const std::string GearTableIndexBuilder::kGearTableIndexBlock =
     "GearTableIndexBlock";
-void GearTableIndexBuilder::AddKeyOffset(Slice key, uint32_t key_offset) {
+void GearTableIndexBuilder::AddKeyOffset(Slice /*key*/,
+                                         uint32_t /*key_offset*/) {
   //  std::pair<std::string, uint32_t> index_pair;
   //  btree_insert(&btree, reinterpret_cast<const uint8_t *>(key.data()),
   //               &key_offset, sizeof(key_offset));

@@ -172,7 +172,6 @@ class GearTableReader : public TableReader {
   explicit GearTableReader(const TableReader&) = delete;
   void operator=(const TableReader&) = delete;
   static Status ReadProperties(RandomAccessFileReader* file, uint64_t file_size,
-                               const ImmutableCFOptions& ioptions,
                                TableProperties** properties);
   static const int table_prop_size = 13;
 };

@@ -59,14 +59,15 @@ void MockFileGenerator::ReOpenDB() {
   cf_options_.merge_operator = merge_op_;
   cf_options_.compaction_filter = compaction_filter_.get();
   column_families.emplace_back(kDefaultColumnFamilyName, cf_options_);
-  versions_.release();
   versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
                                  table_cache_.get(), &write_buffer_manager_,
                                  &write_controller_,
                                  /*block_cache_tracer=*/nullptr));
   compaction_job_stats_.Reset();
   SetIdentityFile(env_, dbname_);
-  assert(versions_->Recover(column_families, false).ok());
+  Status s = versions_->Recover(column_families, false);
+  if (!s.ok()) exit(-2);
+  env_->SleepForMicroseconds(kMicrosInSecond);
   cfd_ = versions_->GetColumnFamilySet()->GetDefault();
   ColumnFamilyHandle* handle =
       new ColumnFamilyHandleImpl(cfd_, impl, impl->mutex());
@@ -120,17 +121,23 @@ void MockFileGenerator::NewDB(bool use_existing_data) {
   }
   // Make "CURRENT" file that points to the new manifest file.
   s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
-  assert(s.ok());
+  if (!s.ok()) {
+    std::cout << s.ToString() << std::endl;
+  }
   std::vector<ColumnFamilyDescriptor> column_families;
   cf_options_.table_factory = gear_table_factory;
   cf_options_.merge_operator = merge_op_;
   cf_options_.compaction_filter = compaction_filter_.get();
   column_families.emplace_back(kDefaultColumnFamilyName, cf_options_);
-  assert(versions_->Recover(column_families, false).ok());
+  s = versions_->Recover(column_families, false);
+  if (!s.ok()) {
+    std::cout << s.ToString() << std::endl;
+  }
   cfd_ = versions_->GetColumnFamilySet()->GetDefault();
   ColumnFamilyHandle* handle =
       new ColumnFamilyHandleImpl(cfd_, impl, impl->mutex());
   writer_.reset(new SstFileWriter(env_options_, options_, handle));
+  env_->SleepForMicroseconds(kMicrosInSecond);
 }
 
 Status MockFileGenerator::AddMockFile(const stl_wrappers::KVMap& contents,
@@ -143,14 +150,15 @@ Status MockFileGenerator::AddMockFile(const stl_wrappers::KVMap& contents,
 
   uint64_t file_number = versions_->NewFileNumber();
   Status s;
-  writer_->Open(GenerateFileName(file_number));
-
+  auto sst_name = GenerateFileName(file_number);
+  s = writer_->Open(sst_name);
+  if (!s.ok()) return s;
   for (auto kv : contents) {
     ParsedInternalKey key;
     std::string skey;
     std::string value;
     std::tie(skey, value) = kv;
-    bool parsed = ParseInternalKey(skey, &key);
+    ParseInternalKey(skey, &key);
 
     smallest_seqno = std::min(smallest_seqno, key.sequence);
     largest_seqno = std::max(largest_seqno, key.sequence);

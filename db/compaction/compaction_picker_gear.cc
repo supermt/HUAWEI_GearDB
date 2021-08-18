@@ -468,11 +468,11 @@ Compaction* GearCompactionBuilder::PickDeleteTriggeredCompaction() {
     }
   }
 
-  uint64_t estimated_total_size = 0;
-  // Use size of the output level as estimated file size
-  for (FileMetaData* f : vstorage_->LevelFiles(output_level)) {
-    estimated_total_size += f->fd.GetFileSize();
-  }
+//  uint64_t estimated_total_size = 0;
+  //  // Use size of the output level as estimated file size
+  //  for (FileMetaData* f : vstorage_->LevelFiles(output_level)) {
+  //    estimated_total_size += f->fd.GetFileSize();
+  //  }
   uint32_t path_id = GetPathId(ioptions_, mutable_cf_options_, output_level);
   return new Compaction(
       vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
@@ -552,7 +552,6 @@ Compaction* GearCompactionBuilder::PickCompactionToOldest(
   // We never check size for
   // compaction_options_universal.compression_size_percent,
   // because we always compact all the files, so always compress.
-  int kMaxL2Size = 10000000;
   return new Compaction(
       vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
       output_level, mutable_cf_options_.target_file_size_base,
