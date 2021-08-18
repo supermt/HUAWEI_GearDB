@@ -238,12 +238,6 @@ class L2SmallTreeCreator {
     CheckFile(sst_name_, keys);
   }
 };
-class CountingLogger : public Logger {
- public:
-  using Logger::Logv;
-  void Logv(const char* /*format*/, va_list /*ap*/) override { log_count++; }
-  size_t log_count;
-};
 
 class MockFileGenerator {
  public:
@@ -293,16 +287,16 @@ class MockFileGenerator {
         icmp_(ucmp_) {
     env_->CreateDirIfMissing(db_name);
     env_->CreateDir(db_name + opt.index_dir_prefix);
+    env_->SetBackgroundThreads(db_options_.max_subcompactions);
     db_options_.env = env_;
     db_options_.fs = fs_;
 
-    GearTableOptions gearTableOptions;
-    gearTableOptions.encoding_type = kPlain;
-    gearTableOptions.user_key_len = 15;
-    gearTableOptions.user_value_len = 10;
-    gear_table_factory =
-        std::shared_ptr<TableFactory>(NewGearTableFactory(gearTableOptions));
-
+    //    GearTableOptions gearTableOptions;
+    //    gearTableOptions.encoding_type = kPlain;
+    //    gearTableOptions.user_key_len = 15;
+    //    gearTableOptions.user_value_len = 10;
+    gear_table_factory = opt.table_factory;
+    CreateLoggerFromOptions(db_name, opt, &opt.info_log);
     assert(!db_options_.db_paths.empty());
   }
   std::string GenerateFileName(uint64_t file_number) {
@@ -381,6 +375,7 @@ class SpanningKeyGenerator {
     for (auto key : result_list) {
       InternalKey ikey(key_gen_ptr->GenerateKeyFromInt(key), ++(*seqno),
                        kTypeValue);
+      *seqno += 1;
       content.emplace(ikey.Encode().ToString(), value);
     }
     return content;

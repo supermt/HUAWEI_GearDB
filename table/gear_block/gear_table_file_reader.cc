@@ -221,17 +221,21 @@ uint32_t GearTableFileReader::FromOffsetToBlockID(uint32_t offset) {
 
 uint32_t GearTableFileReader::FromKeyIdToBlockID(uint64_t key_id,
                                                  uint32_t* in_blk_offset) {
-  uint32_t result = 0;
-  uint64_t skipped_entries = 0;
-  for (unsigned long i = 0; i < data_pages.data_page_list.size(); i++) {
-    result = i;
-    if (data_pages.data_page_list[i].entry_count_ + skipped_entries > key_id) {
-      *in_blk_offset = key_id - skipped_entries;
-      break;
-    }
-    skipped_entries += data_pages.data_page_list[i].entry_count_;
-  }
-  return result;
+  int default_page_size = data_pages.data_page_list[0].entry_count_;
+  *in_blk_offset = key_id % default_page_size;
+  return key_id / data_pages.data_page_list[0].entry_count_;
+  //  uint32_t result = 0;
+  //  uint64_t skipped_entries = 0;
+  //  for (unsigned long i = 0; i < data_pages.data_page_list.size(); i++) {
+  //    result = i;
+  //    if (data_pages.data_page_list[i].entry_count_ + skipped_entries >
+  //    key_id) {
+  //      *in_blk_offset = key_id - skipped_entries;
+  //      break;
+  //    }
+  //    skipped_entries += data_pages.data_page_list[i].entry_count_;
+  //  }
+  //  return result;
 }
 
 Status GearTableFileReader::GetKey(uint64_t key_id,

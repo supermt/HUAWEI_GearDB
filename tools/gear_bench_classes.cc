@@ -199,7 +199,7 @@ Status MockFileGenerator::TriggerCompaction() {
     l2_input_files.files.push_back(file);
   }
   GearCompactionPicker gear_picker(*cfd_->ioptions(), &icmp_);
-  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
+  LogBuffer log_buffer(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log.get());
   //  Compaction* compaction_ptr =
   //      cfd_->PickCompaction(this->mutable_cf_options_, &log_buffer);
   auto start_micro = env_->NowMicros();
@@ -246,16 +246,20 @@ Status MockFileGenerator::TriggerCompaction() {
       nullptr, &mutex_, &error_handler_, snapshots,
       earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
       &event_logger, false, false, dbname_, &compaction_job_stats_,
-      Env::Priority::USER);
+      Env::Priority::LOW);
 
   compaction_job.Prepare();
   std::cout << "Compaction job prepared at: " << env_->NowMicros() << std::endl;
   mutex_.Unlock();
+  start_micro = env_->NowMicros();
   s = compaction_job.Run();
   assert(s.ok());
   mutex_.Lock();
   s = compaction_job.Install(*cfd_->GetLatestMutableCFOptions());
-  std::cout << "Compaction Finished at :" << env_->NowMicros() << std::endl;
+  uint64_t end = env_->NowMicros();
+  std::cout << "Compaction Finished at :" << end << std::endl;
+  std::cout << "time cost of Compaction" << (end - start_micro) / 1000000
+            << "secs" << std::endl;
   assert(s.ok());
   mutex_.Unlock();
   return s;

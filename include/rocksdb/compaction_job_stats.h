@@ -6,6 +6,7 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+
 #include <string>
 
 #include "rocksdb/rocksdb_namespace.h"
@@ -22,7 +23,6 @@ struct CompactionJobStats {
 
   // the elapsed CPU time of this compaction in microseconds.
   uint64_t cpu_micros;
-
   // the number of compaction input records.
   uint64_t num_input_records;
   // the number of compaction input files.
@@ -92,5 +92,9 @@ struct CompactionJobStats {
 
   // number of single-deletes which meet something other than a put
   uint64_t num_single_del_mismatch;
+
+  uint64_t total_iter_nanos;
+  uint64_t prepare_writing_nanos;
+  uint64_t file_read_nanos;
 };
 }  // namespace ROCKSDB_NAMESPACE

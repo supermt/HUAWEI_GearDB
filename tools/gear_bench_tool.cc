@@ -89,7 +89,15 @@
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
-
+//--db=/media/jinghuan/nvme/gear_bench_test
+//    --distinct_num=1000000
+//        --write_buffer_size=500000
+//            --benchmark=generate,merge
+//            --use_existing_data=False
+//                --span_range=1
+//                    --l2_small_tree_num=2
+//                        --max_background_compactions=4
+//                            --target_file_size_base=500000
 DEFINE_uint64(seed, 0, "random seed");
 DEFINE_string(benchmark, "",
               "available values: "
@@ -100,17 +108,19 @@ DEFINE_string(benchmark, "",
               "Please ensure when there is a merge operation in the benchmark, "
               "the use_existing_data is triggered");
 // directory settings.
-DEFINE_bool(use_existing_data, true, "Use the existing database or not");
+DEFINE_bool(use_existing_data, false, "Use the existing database or not");
 DEFINE_bool(delete_new_files, true, "Delete L2 small tree after bench");
 DEFINE_string(db, "", "The database path");
+DEFINE_string(table_format, "gear", "available formats: gear or normal");
+
 // key range settings.
-DEFINE_double(span_range, 0.1, "The overlapping range of ");
+DEFINE_double(span_range, 1.0, "The overlapping range of ");
 DEFINE_double(min_value, 0, "The min values of the key range");
-DEFINE_uint64(distinct_num, 80000000000, "number of distinct entries");
+DEFINE_uint64(distinct_num, 1000000, "number of distinct entries");
 DEFINE_uint64(existing_entries, 80000000000,
               "The number of entries inside existing database, this option "
               "will be ignored while use_existing_data is triggered");
-DEFINE_uint64(l2_small_tree_num, 1, "Num of SST files in L2 Small tree");
+DEFINE_uint64(l2_small_tree_num, 2, "Num of SST files in L2 Small tree");
 
 // Key size settings.
 DEFINE_int32(key_size, 15, "size of each key");
@@ -145,16 +155,9 @@ void constant_options(Options& opt) {
   opt.max_open_files = 128;
   opt.compaction_style = kCompactionStyleGear;
   opt.num_levels = 3;
-  // specific type of sstable format.
-  GearTableOptions gearTableOptions;
-  gearTableOptions.encoding_type = kPlain;
-  gearTableOptions.user_key_len = FLAGS_key_size;
-  gearTableOptions.user_value_len = FLAGS_value_size;
-  opt.table_factory =
-      std::shared_ptr<TableFactory>(NewGearTableFactory(gearTableOptions));
-
   opt.ttl = 0;
   opt.periodic_compaction_seconds = 0;
+  opt.report_bg_io_stats = true;
 }
 
 void ConfigByGFLAGS(Options& opt) {
@@ -169,6 +172,19 @@ void ConfigByGFLAGS(Options& opt) {
   opt.max_subcompactions = FLAGS_max_background_compactions;
   opt.max_compaction_bytes =
       std::max(FLAGS_max_compaction_bytes, opt.target_file_size_base);
+
+  if (FLAGS_table_format == "gear") {
+    // specific type of sstable format.
+    GearTableOptions gearTableOptions;
+    gearTableOptions.encoding_type = kPlain;
+    gearTableOptions.user_key_len = FLAGS_key_size;
+    gearTableOptions.user_value_len = FLAGS_value_size;
+    opt.table_factory =
+        std::shared_ptr<TableFactory>(NewGearTableFactory(gearTableOptions));
+  } else {
+    opt.table_factory =
+        std::shared_ptr<TableFactory>(NewBlockBasedTableFactory());
+  }
 }
 
 Options BootStrap(int argc, char** argv) {
@@ -189,6 +205,7 @@ Options BootStrap(int argc, char** argv) {
 int gear_bench(int argc, char** argv) {
   //
   Options basic_options = BootStrap(argc, argv);
+  basic_options.info_log.reset(new StderrLogger());
   constant_options(basic_options);
   ConfigByGFLAGS(basic_options);
   L2SmallTreeCreator l2_small_gen =
@@ -196,6 +213,8 @@ int gear_bench(int argc, char** argv) {
                          FLAGS_print_data, FLAGS_delete_new_files);
   // Prepare the random generators
   Random64 rand_gen(FLAGS_seed);
+  FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions,
+                                  ROCKSDB_NAMESPACE::Env::Priority::LOW);
   KeyGenerator key_gen(&rand_gen, SEQUENTIAL, FLAGS_distinct_num, FLAGS_seed,
                        FLAGS_key_size, FLAGS_min_value);
 
@@ -223,32 +242,42 @@ int gear_bench(int argc, char** argv) {
         break;
       }
       SequenceNumber seq = mock_db.versions_->LastSequence();
-      auto start_time = FLAGS_env->NowMicros();
-      std::cout << "Start generating new l2 small tree at" << start_time
-                << std::endl;
-      for (uint64_t i = 0; i < FLAGS_l2_small_tree_num; i++) {
-        stl_wrappers::KVMap content;
-        uint64_t smallest = FLAGS_min_value + i * single_file_range;
-        uint64_t largest = FLAGS_min_value + (i + 1) * single_file_range - 1;
-        std::cout << "New generated file range:" << smallest << "," << largest
-                  << std::endl;
-        largest = std::min(largest, FLAGS_distinct_num);
-        SpanningKeyGenerator l2_small_key_gen(
-            smallest, largest,
-            std::min(FLAGS_write_buffer_size, largest - smallest), FLAGS_seed,
-            SpanningKeyGenerator::kUniform);
-        content = l2_small_key_gen.GenerateContent(&key_gen, &seq);
-        Status s = mock_db.AddMockFile(content, 2,
-                                       VersionStorageInfo::l2_small_tree_index);
-        assert(s.ok());
+      auto files = mock_db.cfd_->current()->storage_info()->LevelFiles(2);
+      bool small_tree_generated = false;
+      for (auto f : files) {
+        if (f->l2_position == VersionStorageInfo::l2_small_tree_index) {
+          small_tree_generated = true;
+        }
       }
-      std::cout << "L2 Small tree generated: " << FLAGS_env->NowMicros()
-                << std::endl;
+      auto start_time = FLAGS_env->NowMicros();
+      if (!small_tree_generated) {
+        std::cout << "Start generating new l2 small tree at" << start_time
+                  << std::endl;
+        for (uint64_t i = 0; i < FLAGS_l2_small_tree_num; i++) {
+          stl_wrappers::KVMap content;
+          uint64_t smallest = FLAGS_min_value + i * single_file_range;
+          uint64_t largest = FLAGS_min_value + (i + 1) * single_file_range - 1;
+          std::cout << "New generated file range:" << smallest << "," << largest
+                    << std::endl;
+          largest = std::min(largest, FLAGS_distinct_num);
+          SpanningKeyGenerator l2_small_key_gen(
+              smallest, largest,
+              std::min(FLAGS_write_buffer_size, largest - smallest), FLAGS_seed,
+              SpanningKeyGenerator::kUniform);
+          content = l2_small_key_gen.GenerateContent(&key_gen, &seq);
+          Status s = mock_db.AddMockFile(
+              content, 2, VersionStorageInfo::l2_small_tree_index);
+          assert(s.ok());
+        }
+        std::cout << "L2 Small tree generated: " << FLAGS_env->NowMicros()
+                  << std::endl;
+      }
+
       //      mock_db.PrintFullTree(cfd);
 
       mock_db.TriggerCompaction();
       //      mock_db.PrintFullTree(cfd);
-      mock_db.FreeDB();
+      //      mock_db.FreeDB();
     } else if (name == "generate") {
       mock_db.NewDB(FLAGS_use_existing_data);
       int l2_big_tree_num = FLAGS_distinct_num / FLAGS_write_buffer_size;
@@ -259,7 +288,7 @@ int gear_bench(int argc, char** argv) {
       for (int file_num = 0; file_num < l2_big_tree_num; file_num++) {
         uint64_t smallest_key =
             file_num * FLAGS_write_buffer_size + FLAGS_min_value;
-        uint64_t largest_key = smallest_key + FLAGS_write_buffer_size;
+        uint64_t largest_key = smallest_key + FLAGS_write_buffer_size - 1;
         largest_key = std::min(largest_key, FLAGS_distinct_num);
 
         mock_db.CreateFileByKeyRange(smallest_key, largest_key, &key_gen);

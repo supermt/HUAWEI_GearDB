@@ -281,7 +281,7 @@ Compaction::~Compaction() {
 }
 
 uint64_t Compaction::GetCurrentTime() {
-  assert(input_version_!= nullptr);
+  assert(input_version_ != nullptr);
   return input_version()->GetCurrentTime();
 }
 
@@ -544,6 +544,9 @@ bool Compaction::ShouldFormSubcompactions() const {
            !IsOutputLevelEmpty();
   } else if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
     return number_levels_ > 1 && output_level_ > 0;
+  } else if (cfd_->ioptions()->compaction_style == kCompactionStyleGear &&
+             compaction_reason_ == CompactionReason::kGearCompactionAllInOne) {
+    return true;
   } else {
     return false;
   }

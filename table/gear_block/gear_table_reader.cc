@@ -365,16 +365,8 @@ void GearTableIterator::SeekToLast() {
 void GearTableIterator::Seek(const Slice& target) {
   // don't need to check the scan mode
   // for the iterator, we don't need the index, we use the file itself.
-
+  SeekToFirst();
   // read the current key first.
-  ParsedInternalKey parsedKey;
-  status_ = table_->file_reader_->GetKey(visited_key_counts_, &parsedKey, &key_,
-                                         &value_);
-  if (!status_.ok()) {
-    //    visited_key_counts_ = total_entry_count;
-    SetToInvalid();
-    return;
-  }
   if (visited_key_counts_ < total_entry_count) {
     // target not founded, but no errors.
     for (Next(); status_.ok() && Valid(); Next()) {
@@ -389,7 +381,14 @@ void GearTableIterator::Seek(const Slice& target) {
     //    visited_key_counts_ = total_entry_count;
     SetToInvalid();
   }
-
+  ParsedInternalKey parsedKey;
+  status_ = table_->file_reader_->GetKey(visited_key_counts_, &parsedKey, &key_,
+                                         &value_);
+  if (!status_.ok()) {
+    //    visited_key_counts_ = total_entry_count;
+    SetToInvalid();
+    return;
+  }
   // the table reader will search through the index
 }
 

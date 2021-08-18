@@ -560,8 +560,7 @@ Compaction* GearCompactionBuilder::PickCompactionToOldest(
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_, start_level,
                          1, true),
       GetCompressionOptions(mutable_cf_options_, vstorage_, start_level, true),
-      ioptions_.max_subcompactions, {}, false, score_, false,
-      compaction_reason);
+      0, {}, false, score_, false, compaction_reason);
 }
 
 Compaction* GearCompactionBuilder::PickCompactionForLevel(int level) {
