@@ -329,7 +329,12 @@ class MockFileGenerator {
     versions_->SetLastPublishedSequence(sequence_number + 1);
     versions_->SetLastSequence(sequence_number + 1);
   }
-  Status AddMockFile(const stl_wrappers::KVMap& contents, int level = 2,
+
+  Status AddMockFile(const stl_wrappers::KVMap& contents, int level,
+                     int l2_position);
+  Status AddMockFile(uint64_t start_num, uint64_t end_num,
+                     KeyGenerator* key_gen, SequenceNumber start_seq,
+                     int level = 2,
                      int l2_position = VersionStorageInfo::l2_large_tree_index);
   Status TriggerCompaction();
   void NewDB(bool use_existing_data);

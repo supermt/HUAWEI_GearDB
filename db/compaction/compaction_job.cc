@@ -793,16 +793,6 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
       stats.num_dropped_records,
       CompressionTypeToString(compact_->compaction->output_compression())
           .c_str());
-  uint64_t total_iter = 0;
-  uint64_t prepare = 0;
-  for (uint64_t i = 0; i < compact_->sub_compact_states.size(); i++) {
-    total_iter +=
-        compact_->sub_compact_states[i].compaction_job_stats.total_iter_nanos;
-    prepare += compact_->sub_compact_states[i]
-                   .compaction_job_stats.prepare_writing_nanos;
-  }
-  ROCKS_LOG_BUFFER(log_buffer_, "%" PRIu64 " for iter, %" PRIu64 " for Add()",
-                   total_iter, prepare);
   UpdateCompactionJobStats(stats);
 
   auto stream = event_logger_->LogToBuffer(log_buffer_, 4096);
@@ -944,9 +934,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                                   sub_compact->current_output_file_size);
   }
   const auto& c_iter_stats = c_iter->iter_stats();
-  uint64_t start_nanos, end_nanos = 0;
-  uint64_t total_iter_nanos = 0;
-  uint64_t prepare_writing_nanos = 0;
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
@@ -975,10 +962,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     }
     assert(sub_compact->builder != nullptr);
     assert(sub_compact->current_output() != nullptr);
-    start_nanos = env_->NowCPUNanos();
+
     sub_compact->builder->Add(key, value);
-    end_nanos = env_->NowCPUNanos();
-    prepare_writing_nanos += (end_nanos - start_nanos);
 
     sub_compact->current_output_file_size =
         sub_compact->builder->EstimatedFileSize();
@@ -1010,10 +995,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         reinterpret_cast<void*>(
             const_cast<std::atomic<bool>*>(manual_compaction_paused_)));
 
-    start_nanos = env_->NowCPUNanos();
     c_iter->Next();
-    end_nanos = env_->NowCPUNanos();
-    total_iter_nanos += (end_nanos - start_nanos);
     if (c_iter->status().IsManualCompactionPaused()) {
       break;
     }
@@ -1099,10 +1081,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   sub_compact->compaction_job_stats.cpu_micros =
       env_->NowCPUNanos() / 1000 - prev_cpu_micros;
-
-  sub_compact->compaction_job_stats.prepare_writing_nanos +=
-      prepare_writing_nanos;
-  sub_compact->compaction_job_stats.total_iter_nanos += total_iter_nanos;
 
   if (measure_io_stats_) {
     sub_compact->compaction_job_stats.file_write_nanos +=

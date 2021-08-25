@@ -112,11 +112,12 @@ DEFINE_bool(use_existing_data, false, "Use the existing database or not");
 DEFINE_bool(delete_new_files, true, "Delete L2 small tree after bench");
 DEFINE_string(db, "/tmp/rocksdb/gear", "The database path");
 DEFINE_string(table_format, "gear", "available formats: gear or normal");
+DEFINE_int64(max_open_files, 100, "max_opened_files");
 
 // key range settings.
 DEFINE_double(span_range, 1.0, "The overlapping range of ");
 DEFINE_double(min_value, 0, "The min values of the key range");
-DEFINE_uint64(distinct_num, 1000000, "number of distinct entries");
+DEFINE_uint64(distinct_num, 1000000000, "number of distinct entries");
 DEFINE_uint64(existing_entries, 80000000000,
               "The number of entries inside existing database, this option "
               "will be ignored while use_existing_data is triggered");
@@ -129,13 +130,13 @@ DEFINE_int32(value_size, 10, "size of each value");
 // DB column settings
 DEFINE_int32(max_background_compactions, 1,
              "Number of concurrent threads to run.");
-DEFINE_uint64(write_buffer_size, 500000,
+DEFINE_uint64(write_buffer_size, 5000000,
               "Size of Memtable, each flush will directly create a l2 small "
               "tree spanning in the entire key space");
-DEFINE_uint64(target_file_size_base, 500000,
+DEFINE_uint64(target_file_size_base, 5000000,
               "Size of Memtable, each flush will directly create a l2 small "
               "tree spanning in the entire key space");
-DEFINE_uint64(max_compaction_bytes, 100000000u,
+DEFINE_uint64(max_compaction_bytes, 50000000000,
               "max compaction, too small value will cut the SSTables into very "
               "small pieces.");
 static ROCKSDB_NAMESPACE::Env* FLAGS_env = ROCKSDB_NAMESPACE::Env::Default();
@@ -162,6 +163,7 @@ void constant_options(Options& opt) {
 
 void ConfigByGFLAGS(Options& opt) {
   opt.create_if_missing = !FLAGS_use_existing_data;
+  opt.max_open_files = FLAGS_max_open_files;
   opt.env = FLAGS_env;
   opt.write_buffer_size =
       FLAGS_write_buffer_size * (FLAGS_key_size + FLAGS_value_size);
@@ -264,7 +266,10 @@ int gear_bench(int argc, char** argv) {
           content = l2_small_key_gen.GenerateContent(&key_gen, &seq);
           Status s = mock_db.AddMockFile(
               content, 2, VersionStorageInfo::l2_small_tree_index);
-          assert(s.ok());
+          if (!s.ok()) {
+            std::cout << s.ToString() << std::endl;
+            abort();
+          }
         }
         std::cout << "L2 Small tree generated: " << FLAGS_env->NowMicros()
                   << std::endl;

@@ -196,6 +196,55 @@ Status MockFileGenerator::AddMockFile(const stl_wrappers::KVMap& contents,
   return s;
 }
 
+Status MockFileGenerator::AddMockFile(uint64_t start_num, uint64_t end_num,
+                                      KeyGenerator* key_gen,
+                                      SequenceNumber sequence_number, int level,
+                                      int l2_position) {
+  InternalKey smallest_key, largest_key;
+  SequenceNumber smallest_seqno = sequence_number;
+  SequenceNumber largest_seqno = sequence_number;
+  uint64_t start = env_->NowMicros();
+  uint64_t file_number = versions_->NewFileNumber();
+  Status s;
+  auto sst_name = GenerateFileName(file_number);
+  s = writer_->Open(sst_name);
+  if (!s.ok()) return s;
+
+  std::string value = "1234567890";
+  for (uint64_t i = start_num; i < end_num; i++) {
+    std::string skey = key_gen->GenerateKeyFromInt(i);
+    InternalKey ikey(skey, sequence_number, kTypeValue);
+    writer_->Put(ikey.user_key(), value);
+  }
+  std::string temp = key_gen->GenerateKeyFromInt(start_num);
+  smallest_key = InternalKey(temp, sequence_number, kTypeValue);
+  temp = key_gen->GenerateKeyFromInt(end_num);
+  largest_key = InternalKey(temp, sequence_number, kTypeValue);
+
+  s = writer_->Finish();
+  //  int size = writer_->FileSize();
+  if (!s.ok()) {
+    return s;
+  }
+  VersionEdit edit;
+  uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
+
+  edit.AddFile(level, file_number, 0, writer_->FileSize(), smallest_key,
+               largest_key, smallest_seqno, largest_seqno, false,
+               oldest_blob_file_number, kUnknownOldestAncesterTime,
+               kUnknownOldestAncesterTime, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName, l2_position);
+  mutex_.Lock();
+  s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                             mutable_cf_options_, &edit, &mutex_);
+  mutex_.Unlock();
+  uint64_t total = env_->NowMicros() - start;
+  total /= kMicrosInSecond;
+  std::cout << "Single File cost(sec): " << total << std::endl;
+  //  assert(s.ok());
+  return s;
+}
+
 Status MockFileGenerator::TriggerCompaction() {
   cfd_ = versions_->GetColumnFamilySet()->GetDefault();
   Status s;
@@ -261,14 +310,19 @@ Status MockFileGenerator::TriggerCompaction() {
   mutex_.Unlock();
   start_micro = env_->NowMicros();
   s = compaction_job.Run();
-  assert(s.ok());
+  if (!s.ok()) {
+    std::cout << s.ToString() << std::endl;
+    return s;
+  }
   mutex_.Lock();
   s = compaction_job.Install(*cfd_->GetLatestMutableCFOptions());
   uint64_t end = env_->NowMicros();
   std::cout << "Compaction Finished at :" << end << std::endl;
   std::cout << "time cost of Compaction" << (end - start_micro) / 1000000
             << "secs" << std::endl;
-  assert(s.ok());
+  if (!s.ok()) {
+    std::cout << s.ToString() << std::endl;
+  }
   mutex_.Unlock();
   return s;
 }
@@ -278,16 +332,10 @@ Status MockFileGenerator::CreateFileByKeyRange(uint64_t smallest_key,
                                                SequenceNumber start_seq) {
   Status s;
   SequenceNumber sequence_number = start_seq;
-  stl_wrappers::KVMap content;
-  assert(content.empty());
-  std::string value = "1234567890";
-  for (uint64_t i = smallest_key; i < largest_key; i++) {
-    auto key = key_gen->GenerateKeyFromInt(i);
-    InternalKey ikey(key, sequence_number, kTypeValue);
-    content.emplace(ikey.Encode().ToString(), value);
-  }
+  s = AddMockFile(smallest_key, largest_key, key_gen, sequence_number, 2,
+                  VersionStorageInfo::l2_large_tree_index);
+
   sequence_number++;
-  s = AddMockFile(content, 2, VersionStorageInfo::l2_large_tree_index);
   SetLastSequence(sequence_number);
   return s;
 }

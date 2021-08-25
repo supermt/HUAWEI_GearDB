@@ -92,9 +92,5 @@ struct CompactionJobStats {
 
   // number of single-deletes which meet something other than a put
   uint64_t num_single_del_mismatch;
-
-  uint64_t total_iter_nanos;
-  uint64_t prepare_writing_nanos;
-  uint64_t file_read_nanos;
 };
 }  // namespace ROCKSDB_NAMESPACE
