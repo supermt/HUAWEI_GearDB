@@ -155,7 +155,8 @@ void GearTableFileReader::DataPage::GenerateFromSlice(Slice* raw_data) {
 }
 Status GearTableFileReader::NextBlock(uint32_t offset,
                                       uint32_t* data_block_size) {
-  uint32_t header_fields[4] = {0, 0, 0, 0};
+  uint32_t header_fields[DATA_BLOCK_HEADER_SIZE / sizeof(uint32_t)] = {
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   uint32_t data_block_num, entry_count, value_array_length, key_array_length;
   Slice header_info_temp_result;
   Read(offset, header_field_num * sizeof(uint32_t), &header_info_temp_result);

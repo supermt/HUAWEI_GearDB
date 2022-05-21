@@ -92,7 +92,7 @@ GearTableBuilder::~GearTableBuilder() {}
 
 // Here is the data format
 // ------------------------------------------------------------------------
-// | Header 32*4 bit, (data_block_num+ entry_count + value_array_length +
+// | Header 32*4 *4 bit, (data_block_num+ entry_count + value_array_length +
 // key_array_length) | value array...key array|
 void GearTableBuilder::FlushDataBlock() {
   // add another key would extends the data block limit
@@ -101,11 +101,29 @@ void GearTableBuilder::FlushDataBlock() {
   PutFixed32(&block_header_buffer, page_entry_count);
   PutFixed32(&block_header_buffer, (uint32_t)block_value_buffer.size());
   PutFixed32(&block_header_buffer, (uint32_t)block_key_buffer.size());
+  // place holder
+  PutFixed32(&block_header_buffer, properties_.num_data_blocks);
+  PutFixed32(&block_header_buffer, page_entry_count);
+  PutFixed32(&block_header_buffer, (uint32_t)block_value_buffer.size());
+  PutFixed32(&block_header_buffer, (uint32_t)block_key_buffer.size());
+  PutFixed32(&block_header_buffer, properties_.num_data_blocks);
+  PutFixed32(&block_header_buffer, page_entry_count);
+  PutFixed32(&block_header_buffer, (uint32_t)block_value_buffer.size());
+  PutFixed32(&block_header_buffer, (uint32_t)block_key_buffer.size());
+  PutFixed32(&block_header_buffer, properties_.num_data_blocks);
+  PutFixed32(&block_header_buffer, page_entry_count);
+  PutFixed32(&block_header_buffer, (uint32_t)block_value_buffer.size());
+  PutFixed32(&block_header_buffer, (uint32_t)block_key_buffer.size());
 
   // Gear table don't need any meta data.
   //  std::reverse(block_key_buffer.begin(), block_key_buffer.end());
-  std::string data_block =
-      block_header_buffer + block_value_buffer + block_key_buffer;
+  uint32_t placeholder_keys = data_block_size - (block_header_buffer.size() +
+                                                 block_value_buffer.size() +
+                                                 block_header_buffer.size());
+
+  std::string data_block = block_header_buffer + block_value_buffer +
+                           std::string(placeholder_keys, 0x0) +
+                           block_key_buffer;
   io_status_ = file_->Append(data_block);
   offset_ += data_block.size();
   // after flushing, reset the pointer

@@ -36,6 +36,7 @@ struct GearTableReaderFileInfo {
 
 class GearTableFileReader {
  public:
+  const static int DATA_BLOCK_HEADER_SIZE = 64;
   explicit GearTableFileReader(const InternalKeyComparator& internal_comparator,
                                std::unique_ptr<RandomAccessFileReader>&& file,
                                const EnvOptions& storage_options,
@@ -58,7 +59,7 @@ class GearTableFileReader {
   }
   bool Read(uint32_t file_offset, uint32_t len, Slice* out);
 
-  const static uint32_t page_size = 4 * 1024u;
+  const static uint32_t page_size = 8 * 1024u;
   const static int meta_page_size_info_entry_num = 10;
   const static int meta_page_time_info_entry_num = 3;
   const static int header_field_num = 4;

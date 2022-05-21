@@ -146,7 +146,7 @@ static ROCKSDB_NAMESPACE::Env* FLAGS_env = ROCKSDB_NAMESPACE::Env::Default();
 //
 //  DEFINE_string(report_file, "report.csv",
 //                "Filename where some simple stats are reported to (if "
-//                "--report_interval_seconds is bigger than 0)");
+//           c     "--report_interval_seconds is bigger than 0)");
 DEFINE_string(index_dir_prefix, "index", "the index directory");
 DEFINE_bool(print_data, false, "print out the keys with in HEX mode");
 
