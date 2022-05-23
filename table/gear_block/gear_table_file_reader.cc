@@ -111,53 +111,51 @@ bool GearTableFileReader::ReadVarint32NonMmap(uint32_t offset, uint32_t* out,
   return true;
 }
 
-// Status GearTableFileReader::NextKey(uint32_t offset,
-//                                     ParsedInternalKey* parsedKey,
-//                                     Slice* internalKey, Slice* value,
-//                                     uint32_t* bytes_read, bool* seekable) {
-//   assert(value != nullptr);
-//   uint32_t block_id = FromOffsetToBlockID(offset);
-//   Slice raw_data;
-//
-//   this->data_pages.data_page_list[block_id - 1].key_array_.clear();
-//   this->data_pages.data_page_list[block_id - 1].value_array_.clear();
-//   return Status();
-// }
 void GearTableFileReader::DataPage::GenerateFromSlice(Slice* raw_data) {
   uint64_t offset = 0;  // skip the first 16 bytes, it's the meta
   uint64_t key_offset = 0;
   const int parsed_key_length = kGearTableFixedKeyLength + 8;
 
-  std::string reversed_data =
-      Slice(&raw_data->data()[value_array_length_], key_array_length_)
+  std::string key_space =
+      Slice(&raw_data->data()[value_array_length_ + placeholder_length_],
+            key_array_length_)
           .ToString();
 
   //  std::reverse(reversed_data.begin(), reversed_data.end());
-  key_data = Slice(reversed_data);
-  Slice key_slice = Slice(reversed_data);
+  key_data = Slice(key_space);
+  Slice key_slice = Slice(key_space);
   ParsedInternalKey temp;
   key_array_.clear();
   value_array_.clear();
   for (uint32_t i = 0; i < entry_count_; i++) {
-    uint32_t value_len;
-    uint32_t vint32_length;
     Slice value;
     // read the value first.
-    ReadValueLen(raw_data, offset, &value_len, &vint32_length);
-    offset += vint32_length;
-    value = Slice(raw_data->data() + offset, value_len);
-    offset += value_len;
+    if (kGearSaveValueMeta) {
+      uint32_t value_len;
+      uint32_t vint32_length;
+      ReadValueLen(raw_data, offset, &value_len, &vint32_length);
+      offset += vint32_length;
+      value = Slice(raw_data->data() + offset, value_len);
+      offset += value_len;
+    } else {
+      value = Slice(raw_data->data() + offset, kGearTableFixedValueLength);
+      offset += kGearTableFixedValueLength;
+    }
     value_array_.push_back(value.ToString());
     Slice key = Slice(key_slice.data() + key_offset, parsed_key_length);
-    key_array_.push_back(key.ToString());
+    // the key sequence is in opposite direction, use insert instead of push
+    // back
+    key_array_.insert(key_array_.begin(), key.ToString());
     key_offset += parsed_key_length;
   }
 }
+
 Status GearTableFileReader::NextBlock(uint32_t offset,
                                       uint32_t* data_block_size) {
   uint32_t header_fields[DATA_BLOCK_HEADER_SIZE / sizeof(uint32_t)] = {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-  uint32_t data_block_num, entry_count, value_array_length, key_array_length;
+  uint32_t data_block_num, entry_count, value_array_length, key_array_length,
+      placeholder_length_;
   Slice header_info_temp_result;
   Read(offset, header_field_num * sizeof(uint32_t), &header_info_temp_result);
   for (int i = 0; i < header_field_num; i++) {
@@ -167,13 +165,21 @@ Status GearTableFileReader::NextBlock(uint32_t offset,
   entry_count = header_fields[1];
   value_array_length = header_fields[2];
   key_array_length = header_fields[3];
+  placeholder_length_ = header_fields[4];
+
   data_pages.data_page_list.emplace_back(data_block_num, entry_count,
                                          key_array_length, value_array_length);
   data_pages.data_page_offset.emplace_back(
       offset + header_field_num * sizeof(uint32_t),
       value_array_length + key_array_length);
-  *data_block_size = value_array_length + key_array_length +
-                     header_field_num * sizeof(uint32_t);
+
+  assert(DATA_BLOCK_HEADER_SIZE + key_array_length + value_array_length +
+             placeholder_length_ ==
+         PAGE_SIZE);
+  *data_block_size = DATA_BLOCK_HEADER_SIZE + key_array_length +
+                     value_array_length + placeholder_length_;
+  //      value_array_length + key_array_length +header_field_num *
+  //      sizeof(uint32_t);
   data_pages.total_data_pages++;
   return Status();
 }

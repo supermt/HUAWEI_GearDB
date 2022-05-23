@@ -12,8 +12,12 @@
 - Extend the Header Block
     - Change it from 16 Bytes to 64 Bytes
     - For now, the format is:
-        - block number
+        - block id
         - entry count in current block
         - value buffer length
         - key buffer length
-        - placeholder * 12
+        - placeholder length
+
+# May 23 th
+
+> Change the direction of key array to "World hello" style by reversing two times 

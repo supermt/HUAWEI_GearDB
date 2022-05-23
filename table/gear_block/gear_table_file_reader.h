@@ -36,7 +36,15 @@ struct GearTableReaderFileInfo {
 
 class GearTableFileReader {
  public:
-  const static int DATA_BLOCK_HEADER_SIZE = 64;
+  const static int DATA_BLOCK_HEADER_SIZE = kGearTableHeaderLength;
+  const static uint32_t PAGE_SIZE = 8 * 1024u;
+  const static int meta_page_size_info_entry_num = 10;
+  const static int meta_page_time_info_entry_num = 3;
+  const static int header_field_num = DATA_BLOCK_HEADER_SIZE / 4;
+  const static int meta_page_size =
+      (2 * meta_page_size_info_entry_num + 2 * meta_page_time_info_entry_num) *
+      sizeof(uint32_t);
+
   explicit GearTableFileReader(const InternalKeyComparator& internal_comparator,
                                std::unique_ptr<RandomAccessFileReader>&& file,
                                const EnvOptions& storage_options,
@@ -58,14 +66,6 @@ class GearTableFileReader {
     }
   }
   bool Read(uint32_t file_offset, uint32_t len, Slice* out);
-
-  const static uint32_t page_size = 8 * 1024u;
-  const static int meta_page_size_info_entry_num = 10;
-  const static int meta_page_time_info_entry_num = 3;
-  const static int header_field_num = 4;
-  const static int meta_page_size =
-      (2 * meta_page_size_info_entry_num + 2 * meta_page_time_info_entry_num) *
-      sizeof(uint32_t);
 
   // If return false, status code is stored in status_.
   bool ReadNonMmap(uint32_t file_offset, uint32_t len, Slice* output);
@@ -110,7 +110,10 @@ class GearTableFileReader {
           value_array_(0),
           key_array_(0),
           key_array_length_(key_array_length),
-          value_array_length_(value_array_length) {}
+          value_array_length_(value_array_length),
+          placeholder_length_(GearTableFileReader::PAGE_SIZE -
+                              value_array_length - key_array_length -
+                              GearTableFileReader::DATA_BLOCK_HEADER_SIZE) {}
     void FreeBuffer();
     uint32_t data_block_num_;
     uint32_t entry_count_;
@@ -118,6 +121,7 @@ class GearTableFileReader {
     std::vector<std::string> key_array_;
     uint32_t key_array_length_;
     uint32_t value_array_length_;
+    uint32_t placeholder_length_;
     Slice key_data;
     static bool ReadValueLen(Slice* raw_data, uint32_t offset, uint32_t* out,
                              uint32_t* bytes_read);

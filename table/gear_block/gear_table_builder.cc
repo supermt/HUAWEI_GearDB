@@ -93,16 +93,22 @@ GearTableBuilder::~GearTableBuilder() {}
 // Here is the data format
 // ------------------------------------------------------------------------
 // | Header 32*4 *4 bit, (data_block_num+ entry_count + value_array_length +
-// key_array_length) | value array...key array|
+// key_array_length) | value array |\0\0\0\0 |key array|
+// notice that key array is in "World Hello" way, doesn't reverse the key
+// content inside
 void GearTableBuilder::FlushDataBlock() {
   // add another key would extends the data block limit
   properties_.num_data_blocks += 1;
+  uint32_t placeholder_length = data_block_size - (block_header_buffer.size() +
+                                                   block_value_buffer.size() +
+                                                   block_header_buffer.size());
+
   PutFixed32(&block_header_buffer, properties_.num_data_blocks);
   PutFixed32(&block_header_buffer, page_entry_count);
   PutFixed32(&block_header_buffer, (uint32_t)block_value_buffer.size());
   PutFixed32(&block_header_buffer, (uint32_t)block_key_buffer.size());
+  PutFixed32(&block_header_buffer, placeholder_length);
   // place holder
-  PutFixed32(&block_header_buffer, properties_.num_data_blocks);
   PutFixed32(&block_header_buffer, page_entry_count);
   PutFixed32(&block_header_buffer, (uint32_t)block_value_buffer.size());
   PutFixed32(&block_header_buffer, (uint32_t)block_key_buffer.size());
@@ -115,14 +121,11 @@ void GearTableBuilder::FlushDataBlock() {
   PutFixed32(&block_header_buffer, (uint32_t)block_value_buffer.size());
   PutFixed32(&block_header_buffer, (uint32_t)block_key_buffer.size());
 
-  // Gear table don't need any meta data.
-  //  std::reverse(block_key_buffer.begin(), block_key_buffer.end());
-  uint32_t placeholder_keys = data_block_size - (block_header_buffer.size() +
-                                                 block_value_buffer.size() +
-                                                 block_header_buffer.size());
-
+  // reverse the strings again
+  // Hello World -> olleH dlrodW -> World Hello
+  std::reverse(block_key_buffer.begin(), block_key_buffer.end());
   std::string data_block = block_header_buffer + block_value_buffer +
-                           std::string(placeholder_keys, 0x0) +
+                           std::string(placeholder_length, 0x0) +
                            block_key_buffer;
   io_status_ = file_->Append(data_block);
   offset_ += data_block.size();
@@ -135,10 +138,22 @@ void GearTableBuilder::FlushDataBlock() {
   block_header_buffer.clear();
 }
 void GearTableBuilder::Add(const Slice& key, const Slice& value) {
-  // temp buffer for metadata bytes between key and value.
-  char meta_bytes_buf[6];
-  size_t meta_bytes_buf_size = 0;
+  //  if (current_key_length == 0) {
+  //    // empty block buffer
+  //    block_header_buffer.clear();
+  //    block_key_buffer.clear();
+  //    block_value_buffer.clear();
+  //  }
 
+  // if the length tends to exceed block size, flush first
+  if ((current_key_length + current_value_length + key.size() + value.size()) >
+      data_block_size) {
+    FlushDataBlock();
+  }
+  // place the entry into data blocks
+  page_entry_count++;
+
+  // handle the keys
   ParsedInternalKey internal_key;
   if (!ParseInternalKey(key, &internal_key)) {
     assert(false);
@@ -148,40 +163,32 @@ void GearTableBuilder::Add(const Slice& key, const Slice& value) {
     status_ = Status::NotSupported("Range deletion unsupported");
     return;
   }
-
-  if (current_key_length == 0) {
-    // empty block buffer
-    block_header_buffer.clear();
-    block_key_buffer.clear();
-    block_value_buffer.clear();
-  }
-  // place the entry into data blocks
-  page_entry_count++;
-
-  // we have two attributes in the header, and all offset are calculate from
-  // the size of a char in the string.
-  uint32_t value_offset = offset_ + CalculateHeaderSize();
-
-  index_builder_->AddKeyOffset(internal_key.user_key, value_offset);
-  block_key_buffer.append(key.data(), key.size());
+  std::string key_str = key.ToString();
+  std::reverse(key_str.begin(), key_str.end());
+  // we have an 64-byte header, and this value offset is used for index only.
+  block_key_buffer.append(key_str.data(), key_str.size());
   current_key_length = block_key_buffer.size();
 
-  // Write value length
-  uint32_t value_size = static_cast<uint32_t>(value.size());
-  char* end_ptr =
-      EncodeVarint32(meta_bytes_buf + meta_bytes_buf_size, value_size);
-  assert(end_ptr <= meta_bytes_buf + sizeof(meta_bytes_buf));
-  meta_bytes_buf_size = end_ptr - meta_bytes_buf;
-  Slice value_meta_slice = Slice(meta_bytes_buf, meta_bytes_buf_size);
+  uint32_t value_offset = offset_ + CalculateHeaderSize();
+  index_builder_->AddKeyOffset(internal_key.user_key, value_offset);
 
-  block_value_buffer.append(value_meta_slice.data(), value_meta_slice.size());
+  if (kGearSaveValueMeta) {
+    // temp buffer for metadata bytes between key and value.
+    char meta_bytes_buf[6];
+    size_t meta_bytes_buf_size = 0;
+    // Write value length
+    uint32_t value_size = static_cast<uint32_t>(value.size());
+    char* end_ptr =
+        EncodeVarint32(meta_bytes_buf + meta_bytes_buf_size, value_size);
+    assert(end_ptr <= meta_bytes_buf + sizeof(meta_bytes_buf));
+    meta_bytes_buf_size = end_ptr - meta_bytes_buf;
+    Slice value_meta_slice = Slice(meta_bytes_buf, meta_bytes_buf_size);
+
+    block_value_buffer.append(value_meta_slice.data(), value_meta_slice.size());
+  }
+
   block_value_buffer.append(value.data(), value.size());
   current_value_length = block_value_buffer.size();
-
-  if ((current_key_length + current_value_length + key.size() + value.size()) >
-      data_block_size) {
-    FlushDataBlock();
-  }
 
   if (io_status_.ok()) {
     properties_.num_entries++;

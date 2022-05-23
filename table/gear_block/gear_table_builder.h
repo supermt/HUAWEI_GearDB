@@ -53,7 +53,7 @@ class GearTableBuilder : public TableBuilder {
   GearTableBuilder(const GearTableBuilder&) = delete;
   void operator=(const GearTableBuilder&) = delete;
 
-  static uint32_t CalculateHeaderSize() { return 4 * (sizeof(uint32_t)); };
+  static uint32_t CalculateHeaderSize() { return kGearTableHeaderLength; }
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~GearTableBuilder() override;
 
@@ -123,7 +123,7 @@ class GearTableBuilder : public TableBuilder {
 
   const SliceTransform* prefix_extractor_;
   uint64_t estimate_size_limit_;
-  uint64_t data_block_size = GearTableFileReader::page_size;
+  uint64_t data_block_size = GearTableFileReader::PAGE_SIZE;
   Slice GetPrefix(const Slice& target) const {
     assert(target.size() >= 8);  // target is internal key
     return GetPrefixFromUserKey(GetUserKey(target));

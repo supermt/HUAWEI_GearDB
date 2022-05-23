@@ -249,7 +249,7 @@ InternalIterator* GearTableReader::NewIterator(
     }
   }
   //  bool use_prefix_seek = false;
-  // Geat table uses BTree and plain data mode no prefix seek.
+  // Gear table uses BTree and plain data mode, no prefix seek.
   if (arena == nullptr) {
     return new GearTableIterator(this);
   } else {
