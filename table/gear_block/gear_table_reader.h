@@ -110,7 +110,6 @@ class GearTableReader : public TableReader {
 
   // data_start_offset_ and data_end_offset_ defines the range of the
   // sst file that stores data.
-  const uint32_t data_start_offset_ = 0;
   const uint32_t user_key_len_;
   const SliceTransform* prefix_extractor_;
 
@@ -146,7 +145,7 @@ class GearTableReader : public TableReader {
   }
 
   Slice GetUserKey(const Slice& key) const {
-    return Slice(key.data(), key.size() - 8);
+    return Slice(key.data(), key.size() - kNumInternalBytes);
   }
 
   Slice GetPrefixFromUserKey(const Slice& user_key) const {

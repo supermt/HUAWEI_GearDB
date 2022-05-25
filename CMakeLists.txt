@@ -1262,7 +1262,7 @@ if (WITH_BENCHMARK_TOOLS)
             tools/gear_bench.cc
             tools/gear_bench_tool.cc)
     target_link_libraries(gear_bench
-            ${ROCKSDB_LIB})
+            ${ROCKSDB_LIB} gflags)
 
 
     add_executable(cache_bench

@@ -312,7 +312,7 @@ Status GearTableReader::Get(const ReadOptions& readOptions, const Slice& target,
                             const SliceTransform* /*prefix_extractor*/,
                             bool /*skip_filters*/) {
   // use the index to read the target value
-  assert(target.size() == user_key_len_ + 8);
+  assert(target.size() == user_key_len_ + kNumInternalBytes);
   readOptions.iter_start_ts->ToString();
   uint32_t target_offset;
   GearTableIndexReader::IndexSearchResult searchResult =

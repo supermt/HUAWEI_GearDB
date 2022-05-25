@@ -357,12 +357,12 @@ struct PlainTablePropertyNames {
 
 const uint32_t kPlainTableVariableLength = 0;
 // Make sure whether this 15-bytes key length include start or not.
-const uint32_t kGearTableFixedKeyLength = 15;
+const uint32_t kGearTableFixedKeyLength = 16;
 const uint32_t kGearTableFixedValueLength = 10;
 const uint32_t kGearTableHeaderLength = 64;
 const bool kGearSaveValueMeta = false;
 struct GearTableOptions {
-  uint32_t user_key_len = kGearTableFixedKeyLength;
+  uint32_t user_key_len = kGearTableFixedKeyLength - 8;
   uint32_t user_value_len = kGearTableFixedValueLength;
   EncodingType encoding_type = kPlain;
   //  std::string index_dir_prefix = "indices/";

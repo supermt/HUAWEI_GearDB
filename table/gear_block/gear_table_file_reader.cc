@@ -228,6 +228,7 @@ uint32_t GearTableFileReader::FromOffsetToBlockID(uint32_t offset) {
 
 uint32_t GearTableFileReader::FromKeyIdToBlockID(uint64_t key_id,
                                                  uint32_t* in_blk_offset) {
+  // This also works if there's only one block.
   int default_page_size = data_pages.data_page_list[0].entry_count_;
   *in_blk_offset = key_id % default_page_size;
   return key_id / data_pages.data_page_list[0].entry_count_;

@@ -16,8 +16,6 @@
 #endif
 #include <fcntl.h>
 #include <rocksdb/sst_file_reader.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/types.h>
 
 #include <algorithm>
@@ -99,7 +97,9 @@ using GFLAGS_NAMESPACE::SetUsageMessage;
 //                        --max_background_compactions=4
 //                            --target_file_size_base=500000
 DEFINE_uint64(seed, 0, "random seed");
-DEFINE_string(benchmark, "generate,merge",
+DEFINE_bool(statistics, true,
+            "print out the detailed statistics after execution");
+DEFINE_string(benchmark, "validate,generate,merge",
               "available values: "
               "[\'generate,merge\'] for generate and merge,\n"
               " \'generate\' for creat l2 big tree only \n"
@@ -108,7 +108,8 @@ DEFINE_string(benchmark, "generate,merge",
               "Please ensure when there is a merge operation in the benchmark, "
               "the use_existing_data is triggered");
 // directory settings.
-DEFINE_bool(use_existing_data, false, "Use the existing database or not");
+DEFINE_bool(use_exist_db, false, "Use the existing database or not");
+DEFINE_bool(reload_keys, false, "Use the existing database or not");
 DEFINE_bool(delete_new_files, true, "Delete L2 small tree after bench");
 DEFINE_string(db, "/tmp/rocksdb/gear", "The database path");
 DEFINE_string(table_format, "gear", "available formats: gear or normal");
@@ -126,7 +127,6 @@ DEFINE_uint64(l2_small_tree_num, 2, "Num of SST files in L2 Small tree");
 // Key size settings.
 DEFINE_int32(key_size, 15, "size of each key");
 DEFINE_int32(value_size, 10, "size of each value");
-
 // DB column settings
 DEFINE_int32(max_background_compactions, 1,
              "Number of concurrent threads to run.");
@@ -162,7 +162,7 @@ void constant_options(Options& opt) {
 }
 
 void ConfigByGFLAGS(Options& opt) {
-  opt.create_if_missing = !FLAGS_use_existing_data;
+  opt.create_if_missing = !FLAGS_use_exist_db;
   opt.max_open_files = FLAGS_max_open_files;
   opt.env = FLAGS_env;
   opt.write_buffer_size =
@@ -197,136 +197,157 @@ Options BootStrap(int argc, char** argv) {
   }
   std::cout << "db at " << FLAGS_db << std::endl;
   Options basic_options;
-  basic_options.create_if_missing = !FLAGS_use_existing_data;
+  basic_options.create_if_missing = !FLAGS_use_exist_db;
   basic_options.db_paths.emplace_back(FLAGS_db,
                                       std::numeric_limits<uint64_t>::max());
   basic_options.index_dir_prefix = FLAGS_index_dir_prefix;
   return basic_options;
 }
 
+void DoMerge(MockFileGenerator& mock_db, KeyGenerator* key_gen) {
+  FLAGS_use_exist_db = true;
+  std::cout << "Start the merging" << std::endl;
+  mock_db.ReOpenDB();
+  // Validate the version.
+  uint64_t total_key_range = FLAGS_distinct_num - FLAGS_min_value;
+  uint64_t merge_key_range = total_key_range * FLAGS_span_range;
+  uint64_t single_file_range = merge_key_range / FLAGS_l2_small_tree_num;
+  if (merge_key_range < FLAGS_write_buffer_size ||
+      single_file_range < FLAGS_write_buffer_size) {
+    std::cout << "can't fill one single SST, try to decrease the SSTable "
+                 "size or increase the overlapping range."
+              << std::endl;
+    return;
+  }
+  SequenceNumber seq = mock_db.versions_->LastSequence();
+  auto files = mock_db.cfd_->current()->storage_info()->LevelFiles(2);
+  bool small_tree_generated = false;
+  for (auto f : files) {
+    if (f->l2_position == VersionStorageInfo::l2_small_tree_index) {
+      small_tree_generated = true;
+    }
+  }
+  auto start_time = FLAGS_env->NowMicros();
+  if (!small_tree_generated) {
+    std::cout << "Start generating new l2 small tree at" << start_time
+              << std::endl;
+    for (uint64_t i = 0; i < FLAGS_l2_small_tree_num; i++) {
+      stl_wrappers::KVMap content;
+      uint64_t smallest = FLAGS_min_value + i * single_file_range;
+      uint64_t largest = FLAGS_min_value + (i + 1) * single_file_range - 1;
+      std::cout << "New generated file range:" << smallest << "," << largest
+                << std::endl;
+      largest = std::min(largest, FLAGS_distinct_num);
+      SpanningKeyGenerator l2_small_key_gen(
+          smallest, largest,
+          std::min(FLAGS_write_buffer_size, largest - smallest), FLAGS_seed,
+          SpanningKeyGenerator::kUniform);
+      content = l2_small_key_gen.GenerateContent(key_gen, &seq);
+      Status s = mock_db.AddMockFile(content, 2,
+                                     VersionStorageInfo::l2_small_tree_index);
+      if (!s.ok()) {
+        std::cout << s.ToString() << std::endl;
+        abort();
+      }
+    }
+    std::cout << "L2 Small tree generated: " << FLAGS_env->NowMicros()
+              << std::endl;
+  }
+
+  //      mock_db.PrintFullTree(cfd);
+
+  mock_db.TriggerCompaction();
+  //      mock_db.PrintFullTree(cfd);
+  //      mock_db.FreeDB();
+}
+
 int gear_bench(int argc, char** argv) {
   Options basic_options = BootStrap(argc, argv);
   constant_options(basic_options);
   ConfigByGFLAGS(basic_options);
-  L2SmallTreeCreator l2_small_gen =
-      L2SmallTreeCreator(FLAGS_db + "l2_small.sst", basic_options, FLAGS_env,
-                         FLAGS_print_data, FLAGS_delete_new_files);
-  // Prepare the random generators
-  Random64 rand_gen(FLAGS_seed);
-  FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions,
-                                  ROCKSDB_NAMESPACE::Env::Priority::LOW);
-  KeyGenerator key_gen(&rand_gen, SEQUENTIAL, FLAGS_distinct_num, FLAGS_seed,
-                       FLAGS_key_size, FLAGS_min_value);
+  FLAGS_env->SetBackgroundThreads(2, ROCKSDB_NAMESPACE::Env::Priority::HIGH);
+  FLAGS_env->SetBackgroundThreads(2, ROCKSDB_NAMESPACE::Env::Priority::BOTTOM);
+  FLAGS_env->SetBackgroundThreads(2, ROCKSDB_NAMESPACE::Env::Priority::LOW);
+  FLAGS_env->SetBackgroundThreads(
+      1,  // there is only one for L2 Compaction
+      ROCKSDB_NAMESPACE::Env::Priority::DEEP_COMPACT);
 
-  // Create the mock file generator, estimate the fully compacted l2 big tree
-  MockFileGenerator mock_db(FLAGS_env, FLAGS_db, basic_options);
+  FLAGS_env->SetBackgroundThreads(1,  // there is only one for L2 Compaction
+                                  ROCKSDB_NAMESPACE::Env::Priority::BOTTOM);
 
-  // Preparation finished
-  std::stringstream benchmark_stream(FLAGS_benchmark);
-  std::string name;
-  while (std::getline(benchmark_stream, name, ',')) {
-    if (name == "merge") {
-      FLAGS_use_existing_data = true;
-      std::cout << "Start the merging" << std::endl;
-      mock_db.ReOpenDB();
-      // Validate the version.
-      uint64_t total_key_range = FLAGS_distinct_num - FLAGS_min_value;
-      uint64_t merge_key_range = total_key_range * FLAGS_span_range;
-      uint64_t single_file_range = merge_key_range / FLAGS_l2_small_tree_num;
-      if (merge_key_range < FLAGS_write_buffer_size ||
-          single_file_range < FLAGS_write_buffer_size) {
-        std::cout << "can't fill one single SST, try to decrease the SSTable "
-                     "size or increase the overlapping range."
-                  << std::endl;
-        break;
-      }
-      SequenceNumber seq = mock_db.versions_->LastSequence();
-      auto files = mock_db.cfd_->current()->storage_info()->LevelFiles(2);
-      bool small_tree_generated = false;
-      for (auto f : files) {
-        if (f->l2_position == VersionStorageInfo::l2_small_tree_index) {
-          small_tree_generated = true;
-        }
-      }
-      auto start_time = FLAGS_env->NowMicros();
-      if (!small_tree_generated) {
-        std::cout << "Start generating new l2 small tree at" << start_time
-                  << std::endl;
-        for (uint64_t i = 0; i < FLAGS_l2_small_tree_num; i++) {
-          stl_wrappers::KVMap content;
-          uint64_t smallest = FLAGS_min_value + i * single_file_range;
-          uint64_t largest = FLAGS_min_value + (i + 1) * single_file_range - 1;
-          std::cout << "New generated file range:" << smallest << "," << largest
-                    << std::endl;
-          largest = std::min(largest, FLAGS_distinct_num);
-          SpanningKeyGenerator l2_small_key_gen(
-              smallest, largest,
-              std::min(FLAGS_write_buffer_size, largest - smallest), FLAGS_seed,
-              SpanningKeyGenerator::kUniform);
-          content = l2_small_key_gen.GenerateContent(&key_gen, &seq);
-          Status s = mock_db.AddMockFile(
-              content, 2, VersionStorageInfo::l2_small_tree_index);
-          if (!s.ok()) {
-            std::cout << s.ToString() << std::endl;
-            abort();
-          }
-        }
-        std::cout << "L2 Small tree generated: " << FLAGS_env->NowMicros()
-                  << std::endl;
-      }
-
-      //      mock_db.PrintFullTree(cfd);
-
-      mock_db.TriggerCompaction();
-      //      mock_db.PrintFullTree(cfd);
-      //      mock_db.FreeDB();
-    } else if (name == "generate") {
-      mock_db.NewDB(FLAGS_use_existing_data);
-      int l2_big_tree_num = FLAGS_distinct_num / FLAGS_write_buffer_size;
-      std::cout << l2_big_tree_num << " SSTs need creatation" << std::endl;
-      assert(FLAGS_use_existing_data == false);
-      auto start_ms = FLAGS_env->NowMicros();
-      std::cout << "Start running at: " << start_ms << std::endl;
-      for (int file_num = 0; file_num < l2_big_tree_num; file_num++) {
-        uint64_t smallest_key =
-            file_num * FLAGS_write_buffer_size + FLAGS_min_value;
-        uint64_t largest_key = smallest_key + FLAGS_write_buffer_size - 1;
-        largest_key = std::min(largest_key, FLAGS_distinct_num);
-        mock_db.CreateFileByKeyRange(smallest_key, largest_key, &key_gen);
-        std::cout << "No. " << file_num << " SST generated at "
-                  << FLAGS_env->NowMicros()
-                  << ", smallest key: " << smallest_key
-                  << " largest key: " << largest_key << std::endl;
-      }
-      if (l2_big_tree_num * FLAGS_write_buffer_size < FLAGS_distinct_num) {
-        uint64_t smallest_key =
-            l2_big_tree_num * FLAGS_write_buffer_size + FLAGS_min_value;
-        uint64_t largest_key = smallest_key + FLAGS_write_buffer_size;
-        largest_key = std::min(largest_key, FLAGS_distinct_num);
-        std::string smallest_key_str;
-        std::string largest_key_str;
-        smallest_key_str = key_gen.GenerateKeyFromInt(smallest_key);
-        largest_key_str = key_gen.GenerateKeyFromInt(largest_key);
-
-        mock_db.CreateFileByKeyRange(smallest_key, largest_key, &key_gen);
-        std::cout << "No. " << l2_big_tree_num << " SST generated at "
-                  << FLAGS_env->NowMicros()
-                  << ", smallest key: " << smallest_key
-                  << " largest key: " << largest_key << std::endl;
-      }
-      auto end_micro_sec = FLAGS_env->NowMicros();
-      std::cout << "l2 big tree generating finished at " << end_micro_sec
-                << std::endl;
-
-      std::cout << "Time cost: " << ((double)end_micro_sec - start_ms) / 1000000
-                << " sec.";
-      mock_db.FreeDB();
-    } else {
-      mock_db.FreeDB();
-      return -1;
-    }
-  }
-  mock_db.FreeDB();
+  gear_db::Benchmark benchmark(FLAGS_use_exist_db, FLAGS_db, basic_options);
+  benchmark.Run();
+  //
+  //  L2SmallTreeCreator l2_small_gen =
+  //      L2SmallTreeCreator(FLAGS_db + "l2_small.sst", basic_options,
+  //      FLAGS_env,
+  //                         FLAGS_print_data, FLAGS_delete_new_files);
+  //  // Prepare the random generators
+  //  Random64 rand_gen(FLAGS_seed);
+  //  FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions,
+  //                                  ROCKSDB_NAMESPACE::Env::Priority::LOW);
+  //  KeyGenerator key_gen(&rand_gen, SEQUENTIAL, FLAGS_distinct_num,
+  //  FLAGS_seed,
+  //                       FLAGS_key_size, FLAGS_min_value);
+  //
+  //  // Create the mock file generator, estimate the fully compacted l2 big
+  //  tree MockFileGenerator mock_db(FLAGS_env, FLAGS_db, basic_options);
+  //
+  //  // Preparation finished
+  //  std::stringstream benchmark_stream(FLAGS_benchmark);
+  //  std::string name;
+  //  while (std::getline(benchmark_stream, name, ',')) {
+  //    if (name == "merge") {
+  //      DoMerge(mock_db, &key_gen);
+  //    } else if (name == "generate") {
+  //      assert(FLAGS_use_exist_db == false);
+  //      mock_db.NewDB(FLAGS_use_exist_db);
+  //      int l2_big_tree_num = FLAGS_distinct_num / FLAGS_write_buffer_size;
+  //      std::cout << l2_big_tree_num << " SSTs need creatation" << std::endl;
+  //
+  //      auto start_ms = FLAGS_env->NowMicros();
+  //      std::cout << "Start running at: " << start_ms << std::endl;
+  //      for (int file_num = 0; file_num < l2_big_tree_num; file_num++) {
+  //        uint64_t smallest_key =
+  //            file_num * FLAGS_write_buffer_size + FLAGS_min_value;
+  //        uint64_t largest_key = smallest_key + FLAGS_write_buffer_size - 1;
+  //        largest_key = std::min(largest_key, FLAGS_distinct_num);
+  //        mock_db.CreateFileByKeyRange(smallest_key, largest_key, &key_gen);
+  //        std::cout << "No. " << file_num << " SST generated at "
+  //                  << FLAGS_env->NowMicros()
+  //                  << ", smallest key: " << smallest_key
+  //                  << " largest key: " << largest_key << std::endl;
+  //      }
+  //      if (l2_big_tree_num * FLAGS_write_buffer_size < FLAGS_distinct_num) {
+  //        uint64_t smallest_key =
+  //            l2_big_tree_num * FLAGS_write_buffer_size + FLAGS_min_value;
+  //        uint64_t largest_key = smallest_key + FLAGS_write_buffer_size;
+  //        largest_key = std::min(largest_key, FLAGS_distinct_num);
+  //        std::string smallest_key_str;
+  //        std::string largest_key_str;
+  //        smallest_key_str = key_gen.GenerateKeyFromInt(smallest_key);
+  //        largest_key_str = key_gen.GenerateKeyFromInt(largest_key);
+  //
+  //        mock_db.CreateFileByKeyRange(smallest_key, largest_key, &key_gen);
+  //        std::cout << "No. " << l2_big_tree_num << " SST generated at "
+  //                  << FLAGS_env->NowMicros()
+  //                  << ", smallest key: " << smallest_key
+  //                  << " largest key: " << largest_key << std::endl;
+  //      }
+  //      auto end_micro_sec = FLAGS_env->NowMicros();
+  //      std::cout << "l2 big tree generating finished at " << end_micro_sec
+  //                << std::endl;
+  //
+  //      std::cout << "Time cost: " << ((double)end_micro_sec - start_ms) /
+  //      1000000
+  //                << " sec.";
+  //      mock_db.FreeDB();
+  //    } else {
+  //      mock_db.FreeDB();
+  //      return -1;
+  //    }
+  //  }
+  //  mock_db.FreeDB();
 
   return 0;
 }
@@ -335,4 +356,104 @@ int gear_bench(int argc, char** argv) {
 //
 
 }  // namespace ROCKSDB_NAMESPACE
+
+namespace gear_db {
+
+void Benchmark::InitializeOptionsFromFlags(Options* opts) {
+  ConfigByGFLAGS(*opts);
+}
+
+void Benchmark::Validate(ThreadState* thread) {
+  std::cout << "Validating the files " << std::endl;
+}
+void Benchmark::Merge(ThreadState* thread) {
+  std::cout << "Merging the files" << std::endl;
+}
+void Benchmark::Generate(ThreadState* thread) {
+  std::cout << "Generating larger files" << std::endl;
+}
+
+void Benchmark::Run() {
+  std::stringstream benchmark_stream(FLAGS_benchmark);
+  std::string name;
+
+  if (FLAGS_reload_keys) {
+    // Only work on single database
+    assert(db_.db != nullptr);
+    ReadOptions read_opts;
+    read_opts.total_order_seek = true;
+    Iterator* iter = db_.db->NewIterator(read_opts);
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      keys_.emplace_back(iter->key().ToString());
+    }
+    delete iter;
+    FLAGS_distinct_num = keys_.size();
+  }
+
+  while (std::getline(benchmark_stream, name, ',')) {
+    // Sanitize parameters
+    value_size_ = FLAGS_value_size;
+    key_size_ = FLAGS_key_size;
+    write_options_ = WriteOptions();
+
+    void (Benchmark::*method)(ThreadState*) = nullptr;
+    void (Benchmark::*post_process_method)() = nullptr;
+
+    bool fresh_db = !FLAGS_use_exist_db;
+    bool use_rocksdb = false;
+
+    if (name == "validate") {
+      // simplest, create one file with ten keys, and generate it out
+      fresh_db = true;
+      method = &Benchmark::Validate;
+    } else if (name == "merge") {
+      // simplest, create one file with ten keys, and generate it out
+      fresh_db = true;
+      method = &Benchmark::Validate;
+    } else if (name == "generate") {
+      // simplest, create one file with ten keys, and generate it out
+      fresh_db = true;
+      method = &Benchmark::Validate;
+    } else if (name != "") {
+      std::cout << "benchmark can't be accept" << std::endl;
+      exit(-1);
+    }
+
+    if (fresh_db) {
+      if (FLAGS_use_exist_db) {
+        fprintf(stdout, "%-12s : skipped (--use_existing_db is true)\n",
+                name.c_str());
+        method = nullptr;
+      } else {
+        if (db_.db != nullptr) {
+          db_.DeleteDBs();
+          DestroyDB(FLAGS_db, open_options_);
+        }
+        Options options = open_options_;
+      }
+      Open(&open_options_,
+           use_rocksdb);  // use open_options for the last accessed
+    }
+
+    if (method != nullptr) {
+      fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
+      CombinedStats combined_stats;
+    }
+    if (post_process_method != nullptr) {
+      (this->*post_process_method)();
+    }
+  }
+
+  if (secondary_update_thread_) {
+    secondary_update_stopped_.store(1, std::memory_order_relaxed);
+    secondary_update_thread_->join();
+    secondary_update_thread_.reset();
+  }
+  if (FLAGS_statistics) {
+    fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
+  }
+}
+
+}  // namespace gear_db
+
 #endif

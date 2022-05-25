@@ -20,4 +20,19 @@
 
 # May 23 th
 
-> Change the direction of key array to "World hello" style by reversing two times 
+> Change the direction of key array to "World hello" style by reversing two times
+
+- Fix compile problems in the CMakeList.txt
+- Fix the problem while reading
+
+# May 24 th
+
+> Add the Benchmark tool into the gear_bench
+
+- Fix most of the problems happens when adding the entire Benchmark class into the gear bench
+- It can now enable the tuner and some other things.
+- Add the function framework into the system.  
+
+# May 25 th
+> Add the execution function for the three test benchmark
+- Validate
