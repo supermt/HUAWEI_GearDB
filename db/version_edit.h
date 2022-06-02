@@ -113,6 +113,7 @@ struct FileMetaData {
   uint64_t num_deletions = 0;   // the number of deletion entries.
   uint64_t raw_key_size = 0;    // total uncompressed key size.
   uint64_t raw_value_size = 0;  // total uncompressed value size.
+  uint64_t estimate_num_blocks = 0;
 
   int refs = 0;  // Reference count
 
@@ -163,6 +164,7 @@ struct FileMetaData {
         file_checksum(_file_checksum),
         file_checksum_func_name(_file_checksum_func_name),
         l2_position(l2_posi) {
+    this->estimate_num_blocks = (file_size / 8192) + 1;
     TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", this);
   }
 
