@@ -46,8 +46,9 @@ class KeyGenerator {
  public:
   KeyGenerator(Random64* rand, WriteMode mode, uint64_t num, uint64_t seed,
                int key_size, uint64_t min_value);
+  virtual ~KeyGenerator();
 
-  uint64_t Next() {
+  virtual uint64_t Next() {
     switch (mode_) {
       case SEQUENTIAL:
         return next_++;
@@ -73,7 +74,7 @@ class KeyGenerator {
   static Slice AllocateKey(std::unique_ptr<const char[]>* key_guard,
                            int key_size = 15);
 
- private:
+ protected:
   Random64* rand_;
   WriteMode mode_;
   uint64_t min_;
@@ -83,6 +84,13 @@ class KeyGenerator {
   std::vector<uint64_t> values_;
   Slice key_slice_;
   std::unique_ptr<const char[]> key_guard;
+};
+class SeqKeyGenerator : public KeyGenerator {
+ public:
+  explicit SeqKeyGenerator(uint64_t min_value)
+      : KeyGenerator(nullptr, SEQUENTIAL, std::pow(256, 7), 0, 7, min_value){};
+
+  uint64_t Next() override;
 };
 
 struct DBWithColumnFamilies {
@@ -1014,8 +1022,6 @@ class Benchmark {
   Options open_options_;
 
   WriteOptions write_options_;
-  TraceOptions trace_options_;
-  TraceOptions block_cache_trace_options_;
   std::vector<std::string> keys_;
 
   class ErrorHandlerListener : public EventListener {
@@ -1161,10 +1167,6 @@ class Benchmark {
     void (Benchmark::*method)(ThreadState*);
     ChangePoint* point;
   };
-
-  void Validate(ThreadState* thread);
-  void Merge(ThreadState* thread);
-  void Generate(ThreadState* thread);
 
   static void ThreadBody(void* v) {
     ThreadArg* arg = reinterpret_cast<ThreadArg*>(v);
@@ -1352,6 +1354,12 @@ class Benchmark {
       exit(1);
     }
   }
+
+  // benchmark implementation
+  void Validate(ThreadState* thread);
+  void Merge(ThreadState* thread);
+  void Generate(ThreadState* thread);
+  void Inject_LOAD(ThreadState* thread);
 };
 
 };  // namespace gear_db

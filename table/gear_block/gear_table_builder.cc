@@ -99,15 +99,16 @@ GearTableBuilder::~GearTableBuilder() {}
 void GearTableBuilder::FlushDataBlock() {
   // add another key would extends the data block limit
   properties_.num_data_blocks += 1;
-  uint32_t placeholder_length = data_block_size - (block_header_buffer.size() +
-                                                   block_value_buffer.size() +
-                                                   block_header_buffer.size());
+  uint32_t placeholder_length =
+      data_block_size - (GearTableFileReader::DATA_BLOCK_HEADER_SIZE +
+                         current_value_length + current_key_length);
 
   PutFixed32(&block_header_buffer, properties_.num_data_blocks);
   PutFixed32(&block_header_buffer, page_entry_count);
   PutFixed32(&block_header_buffer, (uint32_t)block_value_buffer.size());
   PutFixed32(&block_header_buffer, (uint32_t)block_key_buffer.size());
   PutFixed32(&block_header_buffer, placeholder_length);
+
   // place holder
   PutFixed32(&block_header_buffer, page_entry_count);
   PutFixed32(&block_header_buffer, (uint32_t)block_value_buffer.size());
@@ -128,6 +129,7 @@ void GearTableBuilder::FlushDataBlock() {
                            std::string(placeholder_length, 0x0) +
                            block_key_buffer;
   io_status_ = file_->Append(data_block);
+  io_status_ = file_->Flush();
   offset_ += data_block.size();
   // after flushing, reset the pointer
   current_value_length = 0;
@@ -146,10 +148,11 @@ void GearTableBuilder::Add(const Slice& key, const Slice& value) {
   //  }
 
   // if the length tends to exceed block size, flush first
-  if ((current_key_length + current_value_length + key.size() + value.size()) >
+  if ((current_key_length + current_value_length + key.size() + value.size()) >=
       data_block_size) {
     FlushDataBlock();
   }
+
   // place the entry into data blocks
   page_entry_count++;
 
@@ -167,6 +170,9 @@ void GearTableBuilder::Add(const Slice& key, const Slice& value) {
   std::reverse(key_str.begin(), key_str.end());
   // we have an 64-byte header, and this value offset is used for index only.
   block_key_buffer.append(key_str.data(), key_str.size());
+  assert(key_str.size() == 15);
+  block_key_buffer.push_back('0');
+  //  block_key_buffer.append('0', 16 - key_str.size());
   current_key_length = block_key_buffer.size();
 
   uint32_t value_offset = offset_ + CalculateHeaderSize();

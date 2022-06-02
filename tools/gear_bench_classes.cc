@@ -51,6 +51,7 @@ Slice KeyGenerator::AllocateKey(std::unique_ptr<const char[]>* key_guard,
   key_guard->reset(const_data);
   return Slice(key_guard->get(), key_size);
 }
+KeyGenerator::~KeyGenerator() = default;
 
 void MockFileGenerator::ReOpenDB() {
   DBImpl* impl = new DBImpl(DBOptions(options_), dbname_);
@@ -211,10 +212,12 @@ Status MockFileGenerator::AddMockFile(uint64_t start_num, uint64_t end_num,
   if (!s.ok()) return s;
 
   std::string value = "1234567890";
+
   for (uint64_t i = start_num; i < end_num; i++) {
     std::string skey = key_gen->GenerateKeyFromInt(i);
-    InternalKey ikey(skey, sequence_number, kTypeValue);
-    writer_->Put(ikey.user_key(), value);
+    //    InternalKey ikey(skey, sequence_number, kTypeValue);
+    s = writer_->Put(skey, value);
+    assert(s.ok());
   }
   std::string temp = key_gen->GenerateKeyFromInt(start_num);
   smallest_key = InternalKey(temp, sequence_number, kTypeValue);
@@ -342,5 +345,9 @@ Status MockFileGenerator::CreateFileByKeyRange(uint64_t smallest_key,
 void MockFileGenerator::FreeDB() {
   writer_.release();
   versions_.release();
+}
+uint64_t SeqKeyGenerator::Next() {
+  next_++;
+  return std::max(min_ + next_, std::numeric_limits<uint64_t>::max());
 }
 }  // namespace ROCKSDB_NAMESPACE

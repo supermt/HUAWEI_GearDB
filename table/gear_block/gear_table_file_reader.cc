@@ -175,7 +175,7 @@ Status GearTableFileReader::NextBlock(uint32_t offset,
 
   assert(DATA_BLOCK_HEADER_SIZE + key_array_length + value_array_length +
              placeholder_length_ ==
-         PAGE_SIZE);
+         GearTableFileReader::PAGE_SIZE);
   *data_block_size = DATA_BLOCK_HEADER_SIZE + key_array_length +
                      value_array_length + placeholder_length_;
   //      value_array_length + key_array_length +header_field_num *
