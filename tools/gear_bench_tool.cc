@@ -306,11 +306,6 @@ void Benchmark::Generate(ThreadState* thread) {
   std::cout << "Generating L2 files by GearDB" << std::endl;
   std::cout << "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<" << std::endl;
   SeqKeyGenerator key_gen(FLAGS_min_value);
-  std::string skey = key_gen.GenerateKeyFromInt(262);
-  skey = key_gen.GenerateKeyFromInt(262);
-  skey = key_gen.GenerateKeyFromInt(263);
-  skey = key_gen.GenerateKeyFromInt(264);
-
   int start_file_num = 0;
   int l2_big_tree_num = FLAGS_distinct_num / FLAGS_write_buffer_size;
   int end_file_num = l2_big_tree_num;

@@ -129,7 +129,6 @@ void GearTableBuilder::FlushDataBlock() {
                            std::string(placeholder_length, 0x0) +
                            block_key_buffer;
   io_status_ = file_->Append(data_block);
-  io_status_ = file_->Flush();
   offset_ += data_block.size();
   // after flushing, reset the pointer
   current_value_length = 0;
@@ -148,8 +147,8 @@ void GearTableBuilder::Add(const Slice& key, const Slice& value) {
   //  }
 
   // if the length tends to exceed block size, flush first
-  if ((current_key_length + current_value_length + key.size() + value.size()) >=
-      data_block_size) {
+  if ((current_key_length + current_value_length + key.size() + value.size() +
+       GearTableFileReader::DATA_BLOCK_HEADER_SIZE) >= data_block_size) {
     FlushDataBlock();
   }
 
