@@ -251,7 +251,8 @@ Status MockFileGenerator::AddMockFile(uint64_t start_num, uint64_t end_num,
   mutex_.Unlock();
   uint64_t total = env_->NowMicros() - start;
   total /= kMicrosInSecond;
-  std::cout << "Single File cost(sec): " << total << std::endl;
+  std::cout << "thread id: " << thread_id << "Single File cost(sec): " << total
+            << std::endl;
   //  assert(s.ok());
   return s;
 }

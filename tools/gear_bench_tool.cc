@@ -302,9 +302,6 @@ void Benchmark::Merge(ThreadState* thread) {
   std::cout << "Merging the files" << std::endl;
 }
 void Benchmark::Generate(ThreadState* thread) {
-  std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>" << std::endl;
-  std::cout << "Generating L2 files by GearDB" << std::endl;
-  std::cout << "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<" << std::endl;
   SeqKeyGenerator key_gen(FLAGS_min_value);
   int start_file_num = 0;
   int l2_big_tree_num = FLAGS_distinct_num / FLAGS_write_buffer_size;
@@ -336,9 +333,6 @@ void Benchmark::Generate(ThreadState* thread) {
   }
 
   auto end_micro_sec = FLAGS_env->NowMicros();
-  std::cout << "l2 big tree generating finished at " << end_micro_sec
-            << std::endl;
-
   std::cout << "Time cost: " << ((double)end_micro_sec - start_ms) / 1000000
             << " sec.";
 }
