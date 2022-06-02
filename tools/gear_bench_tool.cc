@@ -114,13 +114,13 @@ DEFINE_bool(delete_new_files, true, "Delete L2 small tree after bench");
 DEFINE_string(db_path, "/tmp/rocksdb/gear", "The database path");
 DEFINE_string(table_format, "gear", "available formats: gear or normal");
 DEFINE_int64(max_open_files, 100, "max_opened_files");
-DEFINE_int64(num_threads, 1, "number of working threads");
+DEFINE_int64(bench_threads, 1, "number of working threads");
 
 // key range settings.
 DEFINE_double(span_range, 1.0, "The overlapping range of ");
 DEFINE_double(min_value, 0, "The min values of the key range");
-DEFINE_uint64(distinct_num, 1000000000, "number of distinct entries");
-DEFINE_uint64(existing_entries, 80000000000,
+DEFINE_uint64(distinct_num, 100000000, "number of distinct entries");
+DEFINE_uint64(existing_entries, 8000000000,
               "The number of entries inside existing database, this option "
               "will be ignored while use_existing_data is triggered");
 DEFINE_uint64(l2_small_tree_num, 2, "Num of SST files in L2 Small tree");
@@ -245,8 +245,8 @@ void DoMerge(MockFileGenerator& mock_db, KeyGenerator* key_gen) {
           std::min(FLAGS_write_buffer_size, largest - smallest), FLAGS_seed,
           SpanningKeyGenerator::kUniform);
       content = l2_small_key_gen.GenerateContent(key_gen, &seq);
-      Status s = mock_db.AddMockFile(content, 2,
-                                     VersionStorageInfo::l2_small_tree_index);
+      Status s = mock_db.AddMockFile(
+          content, 2, VersionStorageInfo::l2_small_tree_index, 0);
       if (!s.ok()) {
         std::cout << s.ToString() << std::endl;
         abort();
@@ -309,19 +309,17 @@ void Benchmark::Generate(ThreadState* thread) {
   int start_file_num = 0;
   int l2_big_tree_num = FLAGS_distinct_num / FLAGS_write_buffer_size;
   int end_file_num = l2_big_tree_num;
-  if (FLAGS_num_threads > 1) {
+  if (FLAGS_bench_threads > 1) {
     // we are using multi-threading methods to generate data.
-    int file_num_each_file = l2_big_tree_num / FLAGS_num_threads + 1;
-    //    std::cout << thread->tid;
-    start_file_num = thread->tid * file_num_each_file;
-    end_file_num = start_file_num + file_num_each_file;
+    int file_num_each_thread = l2_big_tree_num / FLAGS_bench_threads + 1;
+    std::cout << thread->tid << " " << file_num_each_thread << std::endl;
+    start_file_num = thread->tid * file_num_each_thread;
+    end_file_num = start_file_num + file_num_each_thread;
   }
 
   assert(FLAGS_use_exist_db == false);
-
-  mock_db_->NewDB(FLAGS_use_exist_db);
-
-  std::cout << l2_big_tree_num << " SSTs need creatation" << std::endl;
+  std::cout << "Creating " << (end_file_num - start_file_num) << " SSTs"
+            << std::endl;
 
   auto start_ms = FLAGS_env->NowMicros();
   std::cout << "Start running at: " << start_ms << std::endl;
@@ -330,7 +328,8 @@ void Benchmark::Generate(ThreadState* thread) {
         file_num * FLAGS_write_buffer_size + FLAGS_min_value;
     uint64_t largest_key = smallest_key + FLAGS_write_buffer_size - 1;
     largest_key = std::min(largest_key, FLAGS_distinct_num);
-    mock_db_->CreateFileByKeyRange(smallest_key, largest_key, &key_gen);
+    mock_db_->CreateFileByKeyRange(smallest_key, largest_key, &key_gen,
+                                   thread->tid);
     std::cout << "No. " << file_num << " SST generated at "
               << FLAGS_env->NowMicros() << ", smallest key: " << smallest_key
               << " largest key: " << largest_key << std::endl;
@@ -342,7 +341,6 @@ void Benchmark::Generate(ThreadState* thread) {
 
   std::cout << "Time cost: " << ((double)end_micro_sec - start_ms) / 1000000
             << " sec.";
-  mock_db_->FreeDB();
 }
 
 void Benchmark::Inject_LOAD(ThreadState* thread) {
@@ -425,14 +423,17 @@ void Benchmark::Run() {
         }
         Options options = open_options_;
       }
-      Open(&open_options_,
-           use_rocksdb);  // use open_options for the last accessed
+
+      int l2_big_tree_num = FLAGS_distinct_num / FLAGS_write_buffer_size;
+      int file_num_each_thread = l2_big_tree_num / FLAGS_bench_threads + 1;
+      Open(&open_options_, use_rocksdb,
+           FLAGS_bench_threads);  // use open_options for the last accessed
     }
 
     if (method != nullptr) {
       fprintf(stdout, "DB path: [%s]\n", FLAGS_db_path.c_str());
       CombinedStats combined_stats;
-      Stats stats = RunBenchmark(FLAGS_num_threads, name, method);
+      Stats stats = RunBenchmark(FLAGS_bench_threads, name, method);
       combined_stats.AddStats(stats);
     }
   }

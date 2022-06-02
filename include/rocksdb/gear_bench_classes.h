@@ -59,7 +59,6 @@ class KeyGenerator {
         return values_[next_++];
     }
     assert(false);
-    return std::numeric_limits<uint64_t>::max();
   }
 
   void SetNext(uint64_t next) { next_ = next; }
@@ -272,12 +271,16 @@ class MockFileGenerator {
   ColumnFamilyData* cfd_;
   std::unique_ptr<CompactionFilter> compaction_filter_;
   std::shared_ptr<MergeOperator> merge_op_;
-  std::unique_ptr<SstFileWriter> writer_;
+  std::vector<std::unique_ptr<SstFileWriter>> writers_;
+  std::vector<int> file_numbers_;
+  //  std::unique_ptr<SstFileWriter> writer_;
   ErrorHandler error_handler_;
   const Comparator* ucmp_;
   InternalKeyComparator icmp_;
+  const int bench_threads_;
   // function field.
-  MockFileGenerator(Env* env, const std::string& db_name, Options& opt)
+  MockFileGenerator(Env* env, const std::string& db_name, Options& opt,
+                    int bench_threads)
       : env_(env),
         fs_(std::make_shared<LegacyFileSystemWrapper>(env_)),
         dbname_(db_name),
@@ -292,9 +295,12 @@ class MockFileGenerator {
                                  &write_controller_, nullptr)),
         shutting_down_(false),
         preserve_deletes_seqnum_(0),
+        writers_(bench_threads),
+        file_numbers_(bench_threads),
         error_handler_(nullptr, db_options_, &mutex_),
         ucmp_(BytewiseComparator()),
-        icmp_(ucmp_) {
+        icmp_(ucmp_),
+        bench_threads_(bench_threads) {
     auto mk_result = system(("mkdir -p " + db_name).c_str());
     if (mk_result) exit(-1);
     env_->CreateDirIfMissing(db_name);
@@ -341,16 +347,16 @@ class MockFileGenerator {
   }
 
   Status AddMockFile(const stl_wrappers::KVMap& contents, int level,
-                     int l2_position);
+                     int l2_position, int thread_id);
   Status AddMockFile(uint64_t start_num, uint64_t end_num,
                      KeyGenerator* key_gen, SequenceNumber start_seq,
-                     int level = 2,
+                     int thread_id, int level = 2,
                      int l2_position = VersionStorageInfo::l2_large_tree_index);
   Status TriggerCompaction();
   void NewDB(bool use_existing_data);
   void FreeDB();
   Status CreateFileByKeyRange(uint64_t smallest_key, uint64_t largest_key,
-                              KeyGenerator* key_gen,
+                              KeyGenerator* key_gen, int thread_id,
                               SequenceNumber start_seq = 0);
   void ReOpenDB();
 };
@@ -1255,7 +1261,8 @@ class Benchmark {
 
   void InitializeOptionsFromFlags(Options* opts);
 
-  void InitializeOptionsGeneral(Options* opts, bool use_rocksdb) {
+  void InitializeOptionsGeneral(Options* opts, bool use_rocksdb,
+                                int bench_threads) {
     Options& options = *opts;
 
     dbstats = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -1317,13 +1324,13 @@ class Benchmark {
       // open the rocksdb for a full time simulation
       OpenRocksDB(options, Default_db, &db_);
     } else {
-      OpenMockDB(options, Default_db);
+      OpenMockDB(options, Default_db, bench_threads);
     }
   }
 
-  void Open(Options* opts, bool use_rocksdb) {
+  void Open(Options* opts, bool use_rocksdb, int bench_threads) {
     InitializeOptionsFromFlags(opts);
-    InitializeOptionsGeneral(opts, use_rocksdb);
+    InitializeOptionsGeneral(opts, use_rocksdb, bench_threads);
   }
 
   void OpenRocksDB(Options& options, const std::string& db_name,
@@ -1340,15 +1347,17 @@ class Benchmark {
       exit(1);
     }
   }
-  void OpenMockDB(Options& options, const std::string& db_name) {
+  void OpenMockDB(Options& options, const std::string& db_name,
+                  int bench_threads) {
     Status s;
     // Open with column families if necessary.
     std::cout << "----------------Open MockDB----------------" << std::endl;
 
     std::cout << db_name << std::endl;
 
-    mock_db_ = new MockFileGenerator(options.env, db_name, options);
-
+    mock_db_ =
+        new MockFileGenerator(options.env, db_name, options, bench_threads);
+    mock_db_->NewDB(!options.create_if_missing);
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
       exit(1);

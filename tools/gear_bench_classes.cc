@@ -80,8 +80,9 @@ void MockFileGenerator::ReOpenDB() {
                        ->LevelFiles(options_.num_levels - 1)) {
     file->l2_position = VersionStorageInfo::l2_large_tree_index;
   }
-
-  writer_.reset(new SstFileWriter(env_options_, options_, handle));
+  for (int i = 0; i < bench_threads_; i++) {
+    writers_[i].reset(new SstFileWriter(env_options_, options_, handle));
+  }
 }
 
 void MockFileGenerator::NewDB(bool use_existing_data) {
@@ -137,22 +138,29 @@ void MockFileGenerator::NewDB(bool use_existing_data) {
   cfd_ = versions_->GetColumnFamilySet()->GetDefault();
   ColumnFamilyHandle* handle =
       new ColumnFamilyHandleImpl(cfd_, impl, impl->mutex());
-  writer_.reset(new SstFileWriter(env_options_, options_, handle));
-  env_->SleepForMicroseconds(kMicrosInSecond);
+
+  for (int i = 0; i < bench_threads_; i++) {
+    writers_[i].reset(new SstFileWriter(env_options_, options_, handle));
+  }
+
 }
 
 Status MockFileGenerator::AddMockFile(const stl_wrappers::KVMap& contents,
-                                      int level, int l2_position) {
+                                      int level, int l2_position,
+                                      int thread_id) {
   bool first_key = true;
   std::string smallest, largest;
   InternalKey smallest_key, largest_key;
   SequenceNumber smallest_seqno = kMaxSequenceNumber;
   SequenceNumber largest_seqno = 0;
 
+  mutex_.Lock();
   uint64_t file_number = versions_->NewFileNumber();
+  mutex_.Unlock();
+
   Status s;
   auto sst_name = GenerateFileName(file_number);
-  s = writer_->Open(sst_name);
+  s = writers_[thread_id]->Open(sst_name);
   if (!s.ok()) return s;
   for (auto kv : contents) {
     ParsedInternalKey key;
@@ -174,9 +182,9 @@ Status MockFileGenerator::AddMockFile(const stl_wrappers::KVMap& contents,
       largest_key.DecodeFrom(skey);
     }
     first_key = false;
-    writer_->Put(key.user_key, value);
+    writers_[thread_id]->Put(key.user_key, value);
   }
-  s = writer_->Finish();
+  s = writers_[thread_id]->Finish();
   //  int size = writer_->FileSize();
   if (!s.ok()) {
     return s;
@@ -184,8 +192,8 @@ Status MockFileGenerator::AddMockFile(const stl_wrappers::KVMap& contents,
   VersionEdit edit;
   uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
 
-  edit.AddFile(level, file_number, 0, writer_->FileSize(), smallest_key,
-               largest_key, smallest_seqno, largest_seqno, false,
+  edit.AddFile(level, file_number, 0, writers_[thread_id]->FileSize(),
+               smallest_key, largest_key, smallest_seqno, largest_seqno, false,
                oldest_blob_file_number, kUnknownOldestAncesterTime,
                kUnknownOldestAncesterTime, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName, l2_position);
@@ -199,7 +207,8 @@ Status MockFileGenerator::AddMockFile(const stl_wrappers::KVMap& contents,
 
 Status MockFileGenerator::AddMockFile(uint64_t start_num, uint64_t end_num,
                                       KeyGenerator* key_gen,
-                                      SequenceNumber sequence_number, int level,
+                                      SequenceNumber sequence_number,
+                                      int thread_id, int level,
                                       int l2_position) {
   InternalKey smallest_key, largest_key;
   SequenceNumber smallest_seqno = sequence_number;
@@ -208,15 +217,14 @@ Status MockFileGenerator::AddMockFile(uint64_t start_num, uint64_t end_num,
   uint64_t file_number = versions_->NewFileNumber();
   Status s;
   auto sst_name = GenerateFileName(file_number);
-  s = writer_->Open(sst_name);
+  s = writers_[thread_id]->Open(sst_name);
   if (!s.ok()) return s;
 
-  std::string value = "1234567890";
-
-  for (uint64_t i = start_num; i < end_num; i++) {
+  std::string value = "0000000000";
+  uint64_t i = 0;
+  for (i = start_num; i < end_num; i++) {
     std::string skey = key_gen->GenerateKeyFromInt(i);
-    //    InternalKey ikey(skey, sequence_number, kTypeValue);
-    s = writer_->Put(skey, value);
+    s = writers_[thread_id]->Put(skey, value);
     assert(s.ok());
   }
   std::string temp = key_gen->GenerateKeyFromInt(start_num);
@@ -224,7 +232,7 @@ Status MockFileGenerator::AddMockFile(uint64_t start_num, uint64_t end_num,
   temp = key_gen->GenerateKeyFromInt(end_num);
   largest_key = InternalKey(temp, sequence_number, kTypeValue);
 
-  s = writer_->Finish();
+  s = writers_[thread_id]->Finish();
   //  int size = writer_->FileSize();
   if (!s.ok()) {
     return s;
@@ -232,8 +240,8 @@ Status MockFileGenerator::AddMockFile(uint64_t start_num, uint64_t end_num,
   VersionEdit edit;
   uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
 
-  edit.AddFile(level, file_number, 0, writer_->FileSize(), smallest_key,
-               largest_key, smallest_seqno, largest_seqno, false,
+  edit.AddFile(level, file_number, 0, writers_[thread_id]->FileSize(),
+               smallest_key, largest_key, smallest_seqno, largest_seqno, false,
                oldest_blob_file_number, kUnknownOldestAncesterTime,
                kUnknownOldestAncesterTime, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName, l2_position);
@@ -332,18 +340,21 @@ Status MockFileGenerator::TriggerCompaction() {
 Status MockFileGenerator::CreateFileByKeyRange(uint64_t smallest_key,
                                                uint64_t largest_key,
                                                KeyGenerator* key_gen,
+                                               int thread_id,
                                                SequenceNumber start_seq) {
   Status s;
   SequenceNumber sequence_number = start_seq;
-  s = AddMockFile(smallest_key, largest_key, key_gen, sequence_number, 2,
-                  VersionStorageInfo::l2_large_tree_index);
+  s = AddMockFile(smallest_key, largest_key, key_gen, sequence_number,
+                  thread_id, 2, VersionStorageInfo::l2_large_tree_index);
 
   sequence_number++;
   SetLastSequence(sequence_number);
   return s;
 }
 void MockFileGenerator::FreeDB() {
-  writer_.release();
+  for (int i = 0; i < bench_threads_; i++) {
+    writers_[i].release();
+  }
   versions_.release();
 }
 uint64_t SeqKeyGenerator::Next() {
