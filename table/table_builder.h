@@ -146,6 +146,8 @@ class TableBuilder {
   // REQUIRES: Finish(), Abandon() have not been called
   virtual void Add(const Slice& key, const Slice& value) = 0;
 
+  virtual void AddPack(std::string /*data_packs*/) { return; };
+
   // Return non-ok iff some error has been detected.
   virtual Status status() const = 0;
 

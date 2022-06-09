@@ -168,9 +168,9 @@ void GearTableBuilder::Add(const Slice& key, const Slice& value) {
   std::string key_str = key.ToString();
   std::reverse(key_str.begin(), key_str.end());
   // we have an 64-byte header, and this value offset is used for index only.
+  //  block_key_buffer.push_back('0');
   block_key_buffer.append(key_str.data(), key_str.size());
-  assert(key_str.size() == 15);
-  block_key_buffer.push_back('0');
+  assert(key_str.size() == 16);  // the fixed full key size
   //  block_key_buffer.append('0', 16 - key_str.size());
   current_key_length = block_key_buffer.size();
 
@@ -280,6 +280,10 @@ const char* GearTableBuilder::GetFileChecksumFuncName() const {
   } else {
     return kUnknownFileChecksumFuncName;
   }
+}
+void GearTableBuilder::AddPack(std::string data_packs) {
+  std::cout << data_packs << std::endl;
+  // flush all data packs into the file.
 }
 
 }  // namespace ROCKSDB_NAMESPACE

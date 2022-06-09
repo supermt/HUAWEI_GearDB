@@ -120,14 +120,14 @@ DEFINE_int64(bench_threads, 1, "number of working threads");
 DEFINE_int64(duration, 0, "Duration of Fill workloads");
 DEFINE_double(span_range, 1.0, "The overlapping range of ");
 DEFINE_double(min_value, 0, "The min values of the key range");
-DEFINE_uint64(distinct_num, 100000000, "number of distinct entries");
+DEFINE_uint64(distinct_num, 1000000, "number of distinct entries");
 DEFINE_uint64(existing_entries, 8000000000,
               "The number of entries inside existing database, this option "
               "will be ignored while use_existing_data is triggered");
 DEFINE_uint64(l2_small_tree_num, 2, "Num of SST files in L2 Small tree");
 
 // Key size settings.
-DEFINE_int32(key_size, 7, "size of each user key");
+DEFINE_int32(key_size, 8, "size of each user key");
 DEFINE_int32(value_size, 10, "size of each value");
 // DB column settings
 DEFINE_int32(max_background_compactions, 1,
@@ -517,10 +517,7 @@ void Benchmark::DoWrite(ThreadState* thread, WriteMode write_mode) {
 
     thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kWrite);
   }
-  if (!s.ok()) {
-    s = listener_->WaitForRecovery(600000000) ? Status::OK() : s;
-  }
-
+  assert(s.ok());
   if (!s.ok()) {
     fprintf(stderr, "put error: %s\n", s.ToString().c_str());
     exit(1);
