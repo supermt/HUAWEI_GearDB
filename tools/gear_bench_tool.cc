@@ -117,6 +117,7 @@ DEFINE_int64(max_open_files, 100, "max_opened_files");
 DEFINE_int64(bench_threads, 1, "number of working threads");
 
 // key range settings.
+DEFINE_int64(duration, 0, "Duration of Fill workloads");
 DEFINE_double(span_range, 1.0, "The overlapping range of ");
 DEFINE_double(min_value, 0, "The min values of the key range");
 DEFINE_uint64(distinct_num, 100000000, "number of distinct entries");
@@ -391,15 +392,15 @@ void Benchmark::Run() {
     } else if (name == "fillseq") {
       // simplest, create one file with ten keys, and generate it out
       fresh_db = false;
-      method = &Benchmark::Validate;
+      method = &Benchmark::FillSeq;
     } else if (name == "fillrandom") {
       // simplest, create one file with ten keys, and generate it out
       fresh_db = false;
-      method = &Benchmark::Validate;
+      method = &Benchmark::FillRandom;
     } else if (name == "fillunique") {
       // simplest, create one file with ten keys, and generate it out
       fresh_db = false;
-      method = &Benchmark::Validate;
+      method = &Benchmark::FillUnique;
     } else if (name != "") {
       std::cout << "benchmark can't be accept" << std::endl;
       exit(-1);
@@ -440,6 +441,92 @@ void Benchmark::Run() {
   if (FLAGS_statistics) {
     fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
   }
+}
+
+void Benchmark::DoWrite(ThreadState* thread, WriteMode write_mode) {
+  const int test_duration = write_mode == RANDOM ? FLAGS_duration : 0;
+  const int64_t num_ops = FLAGS_distinct_num;
+
+  size_t num_key_gens = 1;
+  if (db_.db == nullptr) {
+    num_key_gens = 1;
+    Open(&open_options_, true, 1);
+  }
+  std::vector<std::unique_ptr<KeyGenerator>> key_gens(num_key_gens);
+  int64_t max_ops = num_ops * num_key_gens;
+  int64_t ops_per_stage = max_ops;
+
+  Duration duration(test_duration, max_ops, ops_per_stage);
+  for (size_t i = 0; i < num_key_gens; i++) {
+    key_gens[i].reset(new KeyGenerator(&(thread->rand), write_mode,
+                                       FLAGS_distinct_num, FLAGS_seed,
+                                       FLAGS_key_size, FLAGS_min_value));
+  }
+
+  //  Random64 rand_gen(FLAGS_seed);
+  //  KeyGenerator key_gen(&rand_gen, SEQUENTIAL, FLAGS_distinct_num,
+  //  FLAGS_seed,
+  //                       FLAGS_key_size, FLAGS_min_value);
+
+  WriteBatch batch;
+  Status s;
+  int64_t bytes = 0;
+
+  std::unique_ptr<const char[]> key_guard;
+  Slice key = AllocateKey(&key_guard);
+
+  DBImpl* db_ptr = reinterpret_cast<DBImpl*>(db_.db);
+
+  int64_t stage = 0;
+  int64_t num_written = 0;
+
+  while (!duration.Done(1)) {
+    if (duration.GetStage() != stage) {
+      stage = duration.GetStage();
+      if (db_.db != nullptr) {
+        db_.CreateNewCf(open_options_, stage);
+      }
+    }
+
+    size_t id = thread->rand.Next() % num_key_gens;
+    DBWithColumnFamilies* db_with_cfh = &db_;
+    batch.Clear();
+    int64_t batch_bytes = 0;
+
+    int64_t rand_num = key_gens[id]->Next();
+    key = key_gens[id]->GenerateKeyFromInt(rand_num);
+    Slice val = "0000000000";
+
+    batch.Put(key, val);
+
+    batch_bytes += val.size() + key_size_;
+    bytes += val.size() + key_size_;
+    ++num_written;
+
+    if (thread->shared->write_rate_limiter.get() != nullptr) {
+      thread->shared->write_rate_limiter->Request(batch_bytes, Env::IO_HIGH,
+                                                  nullptr /* stats */,
+                                                  RateLimiter::OpType::kWrite);
+      // Set time at which last op finished to Now() to hide latency and
+      // sleep from rate limiter. Also, do the check once per batch, not
+      // once per write.
+      thread->stats.ResetLastOpTime();
+    }
+
+    s = db_with_cfh->db->Write(write_options_, &batch);
+
+    thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kWrite);
+  }
+  if (!s.ok()) {
+    s = listener_->WaitForRecovery(600000000) ? Status::OK() : s;
+  }
+
+  if (!s.ok()) {
+    fprintf(stderr, "put error: %s\n", s.ToString().c_str());
+    exit(1);
+  }
+
+  thread->stats.AddBytes(bytes);
 }
 
 }  // namespace gear_db

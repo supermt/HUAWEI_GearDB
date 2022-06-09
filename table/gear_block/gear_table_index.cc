@@ -27,7 +27,7 @@ void GearTableIndexBuilder::AddKeyOffset(Slice /*key*/,
 }
 
 IOStatus GearTableIndexBuilder::Finish() {
-  btree_close(&btree);
+//  btree_close(&btree);
   return IOStatus().OK();
 }
 

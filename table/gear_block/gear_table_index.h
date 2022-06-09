@@ -70,7 +70,7 @@ class GearTableIndexBuilder {
     std::string index_file_name =
         GearTableIndexReader::find_the_index_by_file_name(ioptions_,
                                                           ori_filename);
-    btree_creat(&btree, index_file_name.c_str());
+//    btree_creat(&btree, index_file_name.c_str());
   }
 
   void AddKeyOffset(Slice key, uint32_t key_offset);

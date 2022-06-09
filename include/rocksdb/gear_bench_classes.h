@@ -1369,6 +1369,10 @@ class Benchmark {
   void Merge(ThreadState* thread);
   void Generate(ThreadState* thread);
   void Inject_LOAD(ThreadState* thread);
+  void FillRandom(ThreadState* thread) { DoWrite(thread, RANDOM); }
+  void FillSeq(ThreadState* thread) { DoWrite(thread, SEQUENTIAL); }
+  void FillUnique(ThreadState* thread) { DoWrite(thread, UNIQUE_RANDOM); }
+  void DoWrite(ThreadState* thread, WriteMode write_mode);
 };
 
 };  // namespace gear_db
