@@ -79,7 +79,7 @@ class KeyGenerator {
   uint64_t min_;
   const uint64_t distinct_num_;
   uint64_t next_;
-  int key_size_ = 15;
+  int key_size_ = 16;
   std::vector<uint64_t> values_;
   Slice key_slice_;
   std::unique_ptr<const char[]> key_guard;
@@ -87,7 +87,7 @@ class KeyGenerator {
 class SeqKeyGenerator : public KeyGenerator {
  public:
   explicit SeqKeyGenerator(uint64_t min_value)
-      : KeyGenerator(nullptr, SEQUENTIAL, std::pow(256, 7), 0, 7, min_value){};
+      : KeyGenerator(nullptr, SEQUENTIAL, std::pow(256, 7), 0, 8, min_value){};
 
   uint64_t Next() override;
 };

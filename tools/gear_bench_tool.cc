@@ -324,7 +324,7 @@ void Benchmark::Generate(ThreadState* thread) {
   for (int file_num = start_file_num; file_num < end_file_num; file_num++) {
     uint64_t smallest_key =
         file_num * FLAGS_write_buffer_size + FLAGS_min_value;
-    uint64_t largest_key = smallest_key + FLAGS_write_buffer_size - 1;
+    uint64_t largest_key = smallest_key + FLAGS_write_buffer_size;
     largest_key = std::min(largest_key, FLAGS_distinct_num);
     mock_db_->CreateFileByKeyRange(smallest_key, largest_key, &key_gen,
                                    thread->tid);

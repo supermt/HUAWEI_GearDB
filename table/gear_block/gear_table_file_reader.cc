@@ -114,7 +114,7 @@ bool GearTableFileReader::ReadVarint32NonMmap(uint32_t offset, uint32_t* out,
 void GearTableFileReader::DataPage::GenerateFromSlice(Slice* raw_data) {
   uint64_t offset = 0;  // skip the first 16 bytes, it's the meta
   uint64_t key_offset = 0;
-  const int parsed_key_length = kGearTableFixedKeyLength + 8;
+  const int parsed_key_length = 16;  // kGearTableFixedKeyLength
 
   std::string key_space =
       Slice(&raw_data->data()[value_array_length_ + placeholder_length_],
@@ -171,7 +171,7 @@ Status GearTableFileReader::NextBlock(uint32_t offset,
                                          key_array_length, value_array_length);
   data_pages.data_page_offset.emplace_back(
       offset + header_field_num * sizeof(uint32_t),
-      value_array_length + key_array_length);
+      value_array_length + placeholder_length_ + key_array_length);
 
   assert(DATA_BLOCK_HEADER_SIZE + key_array_length + value_array_length +
              placeholder_length_ ==

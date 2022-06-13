@@ -840,7 +840,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact != nullptr);
 
-  uint64_t prev_cpu_micros = env_->NowCPUNanos() / 1000;
+  uint64_t prev_cpu_micros = env_->NowMicros();
 
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
 
@@ -946,12 +946,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         cfd->user_comparator()->Compare(c_iter->user_key(), *end) >= 0) {
       break;
     }
-    if (c_iter_stats.num_input_records % kRecordStatsEvery ==
-        kRecordStatsEvery - 1) {
-      RecordDroppedKeys(c_iter_stats, &sub_compact->compaction_job_stats);
-      c_iter->ResetRecordCounts();
-      RecordCompactionIOStats();
-    }
 
     // Open output file if necessary
     if (sub_compact->builder == nullptr) {
@@ -962,7 +956,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     }
     assert(sub_compact->builder != nullptr);
     assert(sub_compact->current_output() != nullptr);
-
+    // compare end, add to target file, this can be replaced by Gear Builder
     sub_compact->builder->Add(key, value);
 
     sub_compact->current_output_file_size =
@@ -990,6 +984,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       input_status = input->status();
       output_file_ended = true;
     }
+    //    if (sub_compact->builder->AddPack()) {
+    //    TODO: Xuan, this should be the call back hanlder outside the while
+    //    loop
+    //    for Xuan, this is the function interface for you to add transform
+    //    data pack to file. PLEASE, refer to the above code.
+    //    }
+
     TEST_SYNC_POINT_CALLBACK(
         "CompactionJob::Run():PausingManualCompaction:2",
         reinterpret_cast<void*>(
@@ -1011,6 +1012,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       output_file_ended = true;
     }
     if (output_file_ended) {
+      // Status records
+      // TODO: Jinghuan, change this to the files.
       const Slice* next_key = nullptr;
       if (c_iter->Valid()) {
         next_key = &c_iter->key();
