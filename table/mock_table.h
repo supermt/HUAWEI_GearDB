@@ -65,6 +65,8 @@ class MockTableReader : public TableReader {
 
   void SetupForCompaction() override {}
 
+  void SetupForCompaction(std::string* all_data) override{};
+
   std::shared_ptr<const TableProperties> GetTableProperties() const override;
 
   ~MockTableReader() {}

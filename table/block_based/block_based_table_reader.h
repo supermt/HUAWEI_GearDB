@@ -166,7 +166,7 @@ class BlockBasedTable : public TableReader {
   // Set up the table for Compaction. Might change some parameters with
   // posix_fadvise
   void SetupForCompaction() override;
-
+  void SetupForCompaction(std::string* alldata_block) override;
   std::shared_ptr<const TableProperties> GetTableProperties() const override;
 
   size_t ApproximateMemoryUsage() const override;

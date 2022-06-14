@@ -101,6 +101,7 @@ class PlainTableReader: public TableReader {
 
   uint32_t GetIndexSize() const { return index_.GetIndexSize(); }
   void SetupForCompaction() override;
+  void SetupForCompaction(std::string* all_data) override{};
 
   std::shared_ptr<const TableProperties> GetTableProperties() const override {
     return table_properties_;

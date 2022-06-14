@@ -1040,7 +1040,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   assert(s.ok());
   return s;
 }
-
+void BlockBasedTable::SetupForCompaction(std::string* /*alldata_block*/) {}
 void BlockBasedTable::SetupForCompaction() {
   switch (rep_->ioptions.access_hint_on_compaction_start) {
     case Options::NONE:
