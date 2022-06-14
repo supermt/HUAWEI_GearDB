@@ -1022,6 +1022,7 @@ class Benchmark {
   const SliceTransform* prefix_extractor_;
   rocksdb::DBWithColumnFamilies db_;
   MockFileGenerator* mock_db_;
+  bool mock_db_opened_ = false;
   int64_t num_;
   int key_size_;
   int value_size_;
@@ -1141,10 +1142,10 @@ class Benchmark {
 
   ~Benchmark() {
     db_.DeleteDBs();
-    if (mock_db_ != nullptr) {
+    if (mock_db_ != nullptr && mock_db_opened_) {
       mock_db_->FreeDB();
     }
-    delete mock_db_;
+//    delete mock_db_;
 
     delete prefix_extractor_;
     if (cache_.get() != nullptr) {
@@ -1358,6 +1359,7 @@ class Benchmark {
     mock_db_ =
         new MockFileGenerator(options.env, db_name, options, bench_threads);
     mock_db_->NewDB(!options.create_if_missing);
+    mock_db_opened_ = true;
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
       exit(1);
