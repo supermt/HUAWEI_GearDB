@@ -934,99 +934,141 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                                   sub_compact->current_output_file_size);
   }
   const auto& c_iter_stats = c_iter->iter_stats();
-  while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
-    // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
-    // returns true.
-    const Slice& key = c_iter->key();
-    const Slice& value = c_iter->value();
 
-    // If an end key (exclusive) is specified, check if the current key is
-    // >= than it and exit if it is because the iterator is out of its range
-    if (end != nullptr &&
-        cfd->user_comparator()->Compare(c_iter->user_key(), *end) >= 0) {
-      break;
+  sub_compact->compaction->num_input_levels();
+  std::vector<std::string> input_data_packs;
+  for (size_t i = 0; i < 3; i++) {
+    // there are three levels
+    auto input_files = sub_compact->compaction->inputs(
+        i + sub_compact->compaction->start_level());
+    for (auto input_file : *input_files) {
+      std::string input_data_pack;
+      input_file->fd.table_reader->SetupForCompaction(&input_data_pack);
+      input_data_packs.push_back(input_data_pack);
+      auto largest_seq = input_file->fd.largest_seqno;
+      auto smallest_seq = input_file->fd.smallest_seqno;
     }
+  }
 
-    // Open output file if necessary
+  // For XUAN
+  std::vector<std::string> result_data_packs;
+  for (auto output : result_data_packs) {
     if (sub_compact->builder == nullptr) {
       status = OpenCompactionOutputFile(sub_compact);
       if (!status.ok()) {
         break;
       }
     }
-    assert(sub_compact->builder != nullptr);
-    assert(sub_compact->current_output() != nullptr);
-    // compare end, add to target file, this can be replaced by Gear Builder
-    sub_compact->builder->Add(key, value);
-
+    sub_compact->builder->AddPack(output);
     sub_compact->current_output_file_size =
         sub_compact->builder->EstimatedFileSize();
-    const ParsedInternalKey& ikey = c_iter->ikey();
-    sub_compact->current_output()->meta.UpdateBoundaries(
-        key, value, ikey.sequence, ikey.type);
-    sub_compact->num_output_records++;
+    sub_compact->num_output_records = sub_compact->builder->NumEntries();
+    // For XUAN, it would be better to provide the first key/value and last
+    // key/value in the file, but I can do this in software.
+    //    sub_compact->current_output()->meta.UpdateBoundaries(
+    //        start_key, start_value, start_ikey.sequence, start_ikey.type);
+    //    sub_compact->current_output()->meta.UpdateBoundaries(
+    //        end_key, end_value, end_ikey.sequence, end_ikey.type);
 
-    // Close output file if it is big enough. Two possibilities determine it's
-    // time to close it: (1) the current key should be this file's last key, (2)
-    // the next key should not be in this file.
-    //
-    // TODO(aekmekji): determine if file should be closed earlier than this
-    // during subcompactions (i.e. if output size, estimated by input size, is
-    // going to be 1.2MB and max_output_file_size = 1MB, prefer to have 0.6MB
-    // and 0.6MB instead of 1MB and 0.2MB)
     bool output_file_ended = false;
-    Status input_status;
-    if (sub_compact->compaction->output_level() != 0 &&
-        sub_compact->current_output_file_size >=
-            sub_compact->compaction->max_output_file_size()) {
-      // (1) this key terminates the file. For historical reasons, the iterator
-      // status before advancing will be given to FinishCompactionOutputFile().
-      input_status = input->status();
-      output_file_ended = true;
-    }
-    //    if (sub_compact->builder->AddPack()) {
-    //    TODO: Xuan, this should be the call back hanlder outside the while
-    //    loop
-    //    for Xuan, this is the function interface for you to add transform
-    //    data pack to file. PLEASE, refer to the above code.
-    //    }
+    Status input_status = input->status();
 
-    TEST_SYNC_POINT_CALLBACK(
-        "CompactionJob::Run():PausingManualCompaction:2",
-        reinterpret_cast<void*>(
-            const_cast<std::atomic<bool>*>(manual_compaction_paused_)));
-
-    c_iter->Next();
-    if (c_iter->status().IsManualCompactionPaused()) {
-      break;
-    }
-    if (!output_file_ended && c_iter->Valid() &&
-        sub_compact->compaction->output_level() != 0 &&
-        sub_compact->ShouldStopBefore(c_iter->key(),
-                                      sub_compact->current_output_file_size) &&
-        sub_compact->builder != nullptr) {
-      // (2) this key belongs to the next file. For historical reasons, the
-      // iterator status after advancing will be given to
-      // FinishCompactionOutputFile().
-      input_status = input->status();
-      output_file_ended = true;
-    }
-    if (output_file_ended) {
-      // Status records
-      // TODO: Jinghuan, change this to the files.
-      const Slice* next_key = nullptr;
-      if (c_iter->Valid()) {
-        next_key = &c_iter->key();
-      }
-      CompactionIterationStats range_del_out_stats;
-      status =
-          FinishCompactionOutputFile(input_status, sub_compact, &range_del_agg,
-                                     &range_del_out_stats, next_key);
-      RecordDroppedKeys(range_del_out_stats,
-                        &sub_compact->compaction_job_stats);
-    }
+    CompactionIterationStats range_del_out_stats;
+    status = FinishCompactionOutputFile(input_status, sub_compact,
+                                        &range_del_agg, &range_del_out_stats);
+    RecordDroppedKeys(range_del_out_stats, &sub_compact->compaction_job_stats);
   }
 
+  /*
+    while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
+      // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
+      // returns true.
+      const Slice& key = c_iter->key();
+      const Slice& value = c_iter->value();
+
+      // If an end key (exclusive) is specified, check if the current key is
+      // >= than it and exit if it is because the iterator is out of its range
+      if (end != nullptr &&
+          cfd->user_comparator()->Compare(c_iter->user_key(), *end) >= 0) {
+        break;
+      }
+
+      // Open output file if necessary
+      if (sub_compact->builder == nullptr) {
+        status = OpenCompactionOutputFile(sub_compact);
+        if (!status.ok()) {
+          break;
+        }
+      }
+      assert(sub_compact->builder != nullptr);
+      assert(sub_compact->current_output() != nullptr);
+      // compare end, add to target file, this can be replaced by Gear Builder
+      sub_compact->builder->Add(key, value);
+
+      sub_compact->current_output_file_size =
+          sub_compact->builder->EstimatedFileSize();
+      const ParsedInternalKey& ikey = c_iter->ikey();
+      sub_compact->current_output()->meta.UpdateBoundaries(
+          key, value, ikey.sequence, ikey.type);
+      sub_compact->num_output_records++;
+
+      // Close output file if it is big enough. Two possibilities determine it's
+      // time to close it: (1) the current key should be this file's last key,
+    (2)
+      // the next key should not be in this file.
+      //
+      // TODO(aekmekji): determine if file should be closed earlier than this
+      // during subcompactions (i.e. if output size, estimated by input size, is
+      // going to be 1.2MB and max_output_file_size = 1MB, prefer to have 0.6MB
+      // and 0.6MB instead of 1MB and 0.2MB)
+      bool output_file_ended = false;
+      Status input_status;
+      if (sub_compact->compaction->output_level() != 0 &&
+          sub_compact->current_output_file_size >=
+              sub_compact->compaction->max_output_file_size()) {
+        // (1) this key terminates the file. For historical reasons, the
+    iterator
+        // status before advancing will be given to
+    FinishCompactionOutputFile(). input_status = input->status();
+        output_file_ended = true;
+      }
+
+      TEST_SYNC_POINT_CALLBACK(
+          "CompactionJob::Run():PausingManualCompaction:2",
+          reinterpret_cast<void*>(
+              const_cast<std::atomic<bool>*>(manual_compaction_paused_)));
+
+      c_iter->Next();
+      if (c_iter->status().IsManualCompactionPaused()) {
+        break;
+      }
+      if (!output_file_ended && c_iter->Valid() &&
+          sub_compact->compaction->output_level() != 0 &&
+          sub_compact->ShouldStopBefore(c_iter->key(),
+                                        sub_compact->current_output_file_size)
+    && sub_compact->builder != nullptr) {
+        // (2) this key belongs to the next file. For historical reasons, the
+        // iterator status after advancing will be given to
+        // FinishCompactionOutputFile().
+        input_status = input->status();
+        output_file_ended = true;
+      }
+      if (output_file_ended) {
+        // Status records
+        // TODO: Jinghuan, change this to the files.
+        const Slice* next_key = nullptr;
+        if (c_iter->Valid()) {
+          next_key = &c_iter->key();
+        }
+        CompactionIterationStats range_del_out_stats;
+        status =
+            FinishCompactionOutputFile(input_status, sub_compact,
+    &range_del_agg, &range_del_out_stats, next_key);
+        RecordDroppedKeys(range_del_out_stats,
+                          &sub_compact->compaction_job_stats);
+      }
+    }
+  */
   sub_compact->compaction_job_stats.num_input_deletion_records =
       c_iter_stats.num_input_deletion_records;
   sub_compact->compaction_job_stats.num_corrupt_keys =

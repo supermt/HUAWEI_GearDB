@@ -76,7 +76,6 @@ class GearTableReader : public TableReader {
                            TableReaderCaller caller) override;
 
   uint32_t GetIndexSize() const { return index_.GetIndexSize(); }
-  void SetupForCompaction() override;
 
   std::shared_ptr<const TableProperties> GetTableProperties() const override {
     return table_properties_;
@@ -94,6 +93,8 @@ class GearTableReader : public TableReader {
                   const TableProperties* table_properties,
                   const SliceTransform* prefix_extractor);
   virtual ~GearTableReader();
+  void SetupForCompaction(std::string* all_data_blocks) override;
+  std::string full_data_blocks;
 
  protected:
   Status MmapDataIfNeeded();

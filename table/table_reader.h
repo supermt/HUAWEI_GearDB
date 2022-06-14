@@ -83,7 +83,7 @@ class TableReader {
   // Set up the table for Compaction. Might change some parameters with
   // posix_fadvise
   virtual void SetupForCompaction() = 0;
-
+  virtual void SetupForCompaction(std::string* all_data_blocks) = 0;
   virtual std::shared_ptr<const TableProperties> GetTableProperties() const = 0;
 
   // Prepare work that can be done before the real Get()
