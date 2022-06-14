@@ -93,6 +93,7 @@ class GearTableReader : public TableReader {
                   const TableProperties* table_properties,
                   const SliceTransform* prefix_extractor);
   virtual ~GearTableReader();
+  void SetupForCompaction() override{};
   void SetupForCompaction(std::string* all_data_blocks) override;
   std::string full_data_blocks;
 

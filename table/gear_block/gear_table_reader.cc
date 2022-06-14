@@ -228,7 +228,9 @@ Status GearTableReader::Open(const ImmutableCFOptions& ioptions,
   return s;
 }
 
-void GearTableReader::SetupForCompaction(std::string* all_data_blocks) {}
+void GearTableReader::SetupForCompaction(std::string* all_data_blocks) {
+
+}
 
 InternalIterator* GearTableReader::NewIterator(
     const ReadOptions& options, const SliceTransform* /* prefix_extractor */,
