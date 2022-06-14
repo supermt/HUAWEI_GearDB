@@ -66,7 +66,7 @@ class GearTableFileReader {
     }
   }
   bool Read(uint32_t file_offset, uint32_t len, Slice* out);
-
+  void ReadAllDataBlock(std::string* output);
   // If return false, status code is stored in status_.
   bool ReadNonMmap(uint32_t file_offset, uint32_t len, Slice* output);
 

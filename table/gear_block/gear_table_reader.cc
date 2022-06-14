@@ -229,7 +229,7 @@ Status GearTableReader::Open(const ImmutableCFOptions& ioptions,
 }
 
 void GearTableReader::SetupForCompaction(std::string* all_data_blocks) {
-
+  this->file_reader_->ReadAllDataBlock(all_data_blocks);
 }
 
 InternalIterator* GearTableReader::NewIterator(

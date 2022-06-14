@@ -327,6 +327,12 @@ Status GearTableFileReader::MmapDataIfNeeded() {
   }
   return Status::OK();
 }
+void GearTableFileReader::ReadAllDataBlock(std::string* output) {
+  size_t data_block_size = data_pages.total_data_pages * 8 * 1024;
+  Slice result;
+  Read(0, data_block_size, &result);
+  *output = result.ToString();
+}
 
 bool GearTableFileReader::DataPage::ReadValueLen(Slice* raw_data,
                                                  uint32_t offset, uint32_t* out,
