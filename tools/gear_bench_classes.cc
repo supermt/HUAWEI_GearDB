@@ -359,6 +359,7 @@ void MockFileGenerator::FreeDB() {
 }
 uint64_t SeqKeyGenerator::Next() {
   seq_no.fetch_add(1);
-  return std::max(min_ + seq_no, std::numeric_limits<uint64_t>::max());
+  //  std::cout << seq_no << std::endl;
+  return std::min(min_ + seq_no, std::numeric_limits<uint64_t>::max());
 }
 }  // namespace ROCKSDB_NAMESPACE

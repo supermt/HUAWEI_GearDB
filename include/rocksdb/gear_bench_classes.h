@@ -93,7 +93,7 @@ class SeqKeyGenerator : public KeyGenerator {
   uint64_t Next() override;
 
  private:
-  std::atomic_int64_t seq_no;
+  std::atomic_uint64_t seq_no;
 };
 
 struct DBWithColumnFamilies {
@@ -1273,6 +1273,10 @@ class Benchmark {
     dbstats->set_stats_level(static_cast<StatsLevel>(
         ROCKSDB_NAMESPACE::StatsLevel::kExceptDetailedTimers));
     //    options.create_missing_column_families = 1 > 1;
+    // For XUAN to improve the performance
+    options.min_write_buffer_number_to_merge = 1;
+    //    options.max_write_buffer_number = 4;
+    options.level0_file_num_compaction_trigger = 4;
     options.statistics = dbstats;
     options.wal_dir = Default_wal_dir;
     options.create_if_missing = !Default_use_existing_db;
