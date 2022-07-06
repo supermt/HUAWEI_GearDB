@@ -31,8 +31,19 @@
 
 - Fix most of the problems happens when adding the entire Benchmark class into the gear bench
 - It can now enable the tuner and some other things.
-- Add the function framework into the system.  
+- Add the function framework into the system.
 
 # May 25 th
+
 > Add the execution function for the three test benchmark
+
 - Validate
+
+# Jun 18 th
+
+> Add the interfaces for Miss SUN Xuan to connect the FPGA processing
+
+# Jun 22 th
+
+> Remove the interfaces to use conventional compaction
+> Add the L2 stall

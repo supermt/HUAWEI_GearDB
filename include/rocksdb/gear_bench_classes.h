@@ -87,9 +87,13 @@ class KeyGenerator {
 class SeqKeyGenerator : public KeyGenerator {
  public:
   explicit SeqKeyGenerator(uint64_t min_value)
-      : KeyGenerator(nullptr, SEQUENTIAL, std::pow(256, 7), 0, 8, min_value){};
+      : KeyGenerator(nullptr, SEQUENTIAL, std::pow(256, 7), 0, 8, min_value),
+        seq_no(0){};
 
   uint64_t Next() override;
+
+ private:
+  std::atomic_int64_t seq_no;
 };
 
 struct DBWithColumnFamilies {
@@ -1145,7 +1149,7 @@ class Benchmark {
     if (mock_db_ != nullptr && mock_db_opened_) {
       mock_db_->FreeDB();
     }
-//    delete mock_db_;
+    //    delete mock_db_;
 
     delete prefix_extractor_;
     if (cache_.get() != nullptr) {
@@ -1262,8 +1266,7 @@ class Benchmark {
 
   void InitializeOptionsFromFlags(Options* opts);
 
-  void InitializeOptionsGeneral(Options* opts, bool use_rocksdb,
-                                int bench_threads) {
+  void InitializeOptionsGeneral(Options* opts) {
     Options& options = *opts;
 
     dbstats = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -1321,17 +1324,17 @@ class Benchmark {
     }
     options.env = Default_env;
     options.listeners.emplace_back(listener_);
-    if (use_rocksdb) {
-      // open the rocksdb for a full time simulation
-      OpenRocksDB(options, Default_db, &db_);
-    } else {
-      OpenMockDB(options, Default_db, bench_threads);
-    }
   }
 
   void Open(Options* opts, bool use_rocksdb, int bench_threads) {
     InitializeOptionsFromFlags(opts);
-    InitializeOptionsGeneral(opts, use_rocksdb, bench_threads);
+    InitializeOptionsGeneral(opts);
+    if (use_rocksdb) {
+      // open the rocksdb for a full time simulation
+      OpenRocksDB(*opts, Default_db, &db_);
+    } else {
+      OpenMockDB(*opts, Default_db, bench_threads);
+    }
   }
 
   void OpenRocksDB(Options& options, const std::string& db_name,

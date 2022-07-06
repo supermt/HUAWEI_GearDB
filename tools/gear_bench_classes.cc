@@ -142,7 +142,6 @@ void MockFileGenerator::NewDB(bool use_existing_data) {
   for (int i = 0; i < bench_threads_; i++) {
     writers_[i].reset(new SstFileWriter(env_options_, options_, handle));
   }
-
 }
 
 Status MockFileGenerator::AddMockFile(const stl_wrappers::KVMap& contents,
@@ -359,7 +358,7 @@ void MockFileGenerator::FreeDB() {
   versions_.release();
 }
 uint64_t SeqKeyGenerator::Next() {
-  next_++;
-  return std::max(min_ + next_, std::numeric_limits<uint64_t>::max());
+  seq_no.fetch_add(1);
+  return std::max(min_ + seq_no, std::numeric_limits<uint64_t>::max());
 }
 }  // namespace ROCKSDB_NAMESPACE

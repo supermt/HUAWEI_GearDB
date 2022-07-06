@@ -366,6 +366,7 @@ void Benchmark::Run() {
     value_size_ = FLAGS_value_size;
     key_size_ = FLAGS_key_size;
     write_options_ = WriteOptions();
+    write_options_.disableWAL = true;
 
     void (Benchmark::*method)(ThreadState*) = nullptr;
     void (Benchmark::*post_process_method)() = nullptr;
@@ -392,14 +393,17 @@ void Benchmark::Run() {
     } else if (name == "fillseq") {
       // simplest, create one file with ten keys, and generate it out
       fresh_db = false;
+      use_rocksdb = true;
       method = &Benchmark::FillSeq;
     } else if (name == "fillrandom") {
       // simplest, create one file with ten keys, and generate it out
       fresh_db = false;
+      use_rocksdb = true;
       method = &Benchmark::FillRandom;
     } else if (name == "fillunique") {
       // simplest, create one file with ten keys, and generate it out
       fresh_db = false;
+      use_rocksdb = true;
       method = &Benchmark::FillUnique;
     } else if (name != "") {
       std::cout << "benchmark can't be accept" << std::endl;
@@ -418,11 +422,16 @@ void Benchmark::Run() {
         }
         Options options = open_options_;
       }
-
       int l2_big_tree_num = FLAGS_distinct_num / FLAGS_write_buffer_size;
       int file_num_each_thread = l2_big_tree_num / FLAGS_bench_threads + 1;
-      Open(&open_options_, use_rocksdb,
-           FLAGS_bench_threads);  // use open_options for the last accessed
+
+      //      Open(&open_options_, use_rocksdb,
+      //           FLAGS_bench_threads);  // use open_options for the last
+      //           accessed
+    }
+
+    if (db_.db == nullptr) {
+      Open(&open_options_, use_rocksdb, FLAGS_bench_threads);
     }
 
     if (method != nullptr) {
@@ -448,19 +457,20 @@ void Benchmark::DoWrite(ThreadState* thread, WriteMode write_mode) {
   const int64_t num_ops = FLAGS_distinct_num;
 
   size_t num_key_gens = 1;
-  if (db_.db == nullptr) {
-    num_key_gens = 1;
-    Open(&open_options_, true, 1);
-  }
+
   std::vector<std::unique_ptr<KeyGenerator>> key_gens(num_key_gens);
   int64_t max_ops = num_ops * num_key_gens;
   int64_t ops_per_stage = max_ops;
 
   Duration duration(test_duration, max_ops, ops_per_stage);
   for (size_t i = 0; i < num_key_gens; i++) {
-    key_gens[i].reset(new KeyGenerator(&(thread->rand), write_mode,
-                                       FLAGS_distinct_num, FLAGS_seed,
-                                       FLAGS_key_size, FLAGS_min_value));
+    if (write_mode == rocksdb::SEQUENTIAL) {
+      key_gens[i].reset(new SeqKeyGenerator(FLAGS_min_value));
+    } else {
+      key_gens[i].reset(new KeyGenerator(&(thread->rand), write_mode,
+                                         FLAGS_distinct_num, FLAGS_seed,
+                                         FLAGS_key_size, FLAGS_min_value));
+    }
   }
 
   //  Random64 rand_gen(FLAGS_seed);
