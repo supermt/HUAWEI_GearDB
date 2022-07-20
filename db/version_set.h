@@ -280,7 +280,6 @@ class VersionStorageInfo {
   const std::vector<FileMetaData*>& LevelFiles(int level) const {
     return files_[level];
   }
-
   class FileLocation {
    public:
     FileLocation() = default;
@@ -619,6 +618,7 @@ class VersionStorageInfo {
   // If set to true, we will run consistency checks even if RocksDB
   // is compiled in release mode
   bool force_consistency_checks_;
+
   friend class Version;
   friend class VersionSet;
   // macro area

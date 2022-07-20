@@ -468,7 +468,7 @@ Compaction* GearCompactionBuilder::PickDeleteTriggeredCompaction() {
     }
   }
 
-//  uint64_t estimated_total_size = 0;
+  //  uint64_t estimated_total_size = 0;
   //  // Use size of the output level as estimated file size
   //  for (FileMetaData* f : vstorage_->LevelFiles(output_level)) {
   //    estimated_total_size += f->fd.GetFileSize();

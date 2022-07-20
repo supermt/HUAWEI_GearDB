@@ -692,7 +692,9 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       cf_paths(cf_options.cf_paths),
       cf_path_type_list(cf_options.cf_path_type_list),
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
-      file_checksum_gen_factory(db_options.file_checksum_gen_factory.get()) {}
+      file_checksum_gen_factory(db_options.file_checksum_gen_factory.get()) {
+  this->block_index.reset(new BlockMap);
+}
 
 // Multiple two operands. If they overflow, return op1.
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {

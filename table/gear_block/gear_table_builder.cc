@@ -16,15 +16,11 @@
 #include "file/writable_file_writer.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
-#include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
-#include "table/block_based/block_builder.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
-#include "table/plain/plain_table_builder.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -99,6 +95,18 @@ GearTableBuilder::~GearTableBuilder() {}
 void GearTableBuilder::FlushDataBlock() {
   // add another key would extends the data block limit
   properties_.num_data_blocks += 1;
+  // if the entry is empty
+  std::string first_key(block_key_buffer.substr(0, kGearTableFixedKeyLength));
+  auto index_it = ioptions_.block_index->find(first_key);
+  if (index_it == ioptions_.block_index->end()) {
+    // new block key
+    ioptions_.block_index->emplace(first_key, std::vector<IndexEntry>());
+  } else {
+    // not new block key
+    index_it->second.emplace_back(file_->file_name(),
+                                  properties_.num_data_blocks);
+  }
+
   uint32_t placeholder_length =
       data_block_size - (GearTableFileReader::DATA_BLOCK_HEADER_SIZE +
                          current_value_length + current_key_length);

@@ -15,6 +15,15 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class IndexEntry {
+ public:
+  const std::string file_name_;
+  const uint64_t block_id_;
+  IndexEntry(const std::string& file_name_real, uint64_t block_id)
+      : file_name_(file_name_real), block_id_(block_id) {}
+};
+typedef std::map<std::string, std::vector<IndexEntry>> BlockMap;
+
 // ImmutableCFOptions is a data struct used by RocksDB internal. It contains a
 // subset of Options that should not be changed during the entire lifetime
 // of DB. Raw pointers defined in this struct do not have ownership to the data
@@ -125,6 +134,7 @@ struct ImmutableCFOptions {
   std::vector<PathMediaMap> cf_path_type_list;
 
   std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter;
+  std::shared_ptr<BlockMap> block_index;
 
   FileChecksumGenFactory* file_checksum_gen_factory;
 };
