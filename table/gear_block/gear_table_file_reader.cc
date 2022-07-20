@@ -351,7 +351,7 @@ bool GearTableFileReader::DataPage::ReadValueLen(Slice* raw_data,
   return true;
 }
 void GearTableFileReader::DataPage::FreeBuffer() {
-  value_array_.clear();
-  key_array_.clear();
+  value_array_ = std::vector<std::string>();
+  key_array_ = std::vector<std::string>();
 }
 }  // namespace ROCKSDB_NAMESPACE
