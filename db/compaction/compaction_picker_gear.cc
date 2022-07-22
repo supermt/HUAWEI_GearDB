@@ -231,7 +231,11 @@ Compaction* GearCompactionBuilder::PickCompaction() {
   score_ = vstorage_->CompactionScore(kLevel0);
   sorted_runs_.clear();
   getAllIndexTrees(&sorted_runs_);
-
+  for (int i = 0; i < vstorage_->num_levels(); i++) {
+    auto level_bytes = vstorage_->NumLevelBytes(i);
+    // when level_bytes is longer than the threshold
+  }
+  
   if (sorted_runs_.empty() &&
       (vstorage_->FilesMarkedForPeriodicCompaction().empty() &&
        vstorage_->FilesMarkedForCompaction().empty()
