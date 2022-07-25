@@ -208,9 +208,10 @@ Options BootStrap(int argc, char** argv) {
   return basic_options;
 }
 
-void DoMerge(MockFileGenerator* mock_db, KeyGenerator* key_gen) {
+void DoMerge(MockFileGenerator& mock_db, KeyGenerator* key_gen) {
   FLAGS_use_exist_db = true;
   std::cout << "Start the merging" << std::endl;
+  mock_db.ReOpenDB();
   // Validate the version.
   uint64_t total_key_range = FLAGS_distinct_num - FLAGS_min_value;
   uint64_t merge_key_range = total_key_range * FLAGS_span_range;
@@ -222,8 +223,8 @@ void DoMerge(MockFileGenerator* mock_db, KeyGenerator* key_gen) {
               << std::endl;
     return;
   }
-  SequenceNumber seq = mock_db->versions_->LastSequence();
-  auto files = mock_db->cfd_->current()->storage_info()->LevelFiles(2);
+  SequenceNumber seq = mock_db.versions_->LastSequence();
+  auto files = mock_db.cfd_->current()->storage_info()->LevelFiles(2);
   bool small_tree_generated = false;
   for (auto f : files) {
     if (f->l2_position == VersionStorageInfo::l2_small_tree_index) {
@@ -246,7 +247,7 @@ void DoMerge(MockFileGenerator* mock_db, KeyGenerator* key_gen) {
           std::min(FLAGS_write_buffer_size, largest - smallest), FLAGS_seed,
           SpanningKeyGenerator::kUniform);
       content = l2_small_key_gen.GenerateContent(key_gen, &seq);
-      Status s = mock_db->AddMockFile(
+      Status s = mock_db.AddMockFile(
           content, 2, VersionStorageInfo::l2_small_tree_index, 0);
       if (!s.ok()) {
         std::cout << s.ToString() << std::endl;
@@ -259,7 +260,7 @@ void DoMerge(MockFileGenerator* mock_db, KeyGenerator* key_gen) {
 
   //      mock_db.PrintFullTree(cfd);
 
-  mock_db->TriggerCompaction();
+  mock_db.TriggerCompaction();
   //      mock_db.PrintFullTree(cfd);
   //      mock_db.FreeDB();
 }
@@ -301,10 +302,6 @@ void Benchmark::Validate(ThreadState* thread) {
 }
 void Benchmark::Merge(ThreadState* thread) {
   std::cout << "Merging the files" << std::endl;
-  Random64 rand_gen(FLAGS_seed);
-  KeyGenerator key_gen(&rand_gen, SEQUENTIAL, FLAGS_distinct_num, FLAGS_seed,
-                       FLAGS_key_size, FLAGS_min_value);
-  DoMerge(mock_db_, &key_gen);
 }
 void Benchmark::Generate(ThreadState* thread) {
   SeqKeyGenerator key_gen(FLAGS_min_value);
@@ -555,11 +552,11 @@ void Benchmark::DoWrite(ThreadState* thread, WriteMode write_mode) {
 //                         FLAGS_print_data, FLAGS_delete_new_files);
 //  // Prepare the random generators
 //  Random64 rand_gen(FLAGS_seed);
+//  FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions,
+//                                  ROCKSDB_NAMESPACE::Env::Priority::LOW);
 //  KeyGenerator key_gen(&rand_gen, SEQUENTIAL, FLAGS_distinct_num,
 //  FLAGS_seed,
 //                       FLAGS_key_size, FLAGS_min_value);
-//  FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions,
-//                                  ROCKSDB_NAMESPACE::Env::Priority::LOW);
 //
 //  // Create the mock file generator, estimate the fully compacted l2 big
 //  tree MockFileGenerator mock_db(FLAGS_env, FLAGS_db_path, basic_options);

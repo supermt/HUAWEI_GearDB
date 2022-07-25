@@ -106,9 +106,6 @@ void GearTableBuilder::FlushDataBlock() {
     index_it->second.emplace_back(file_->file_name(),
                                   properties_.num_data_blocks);
   }
-  // TODO: if we can, add this into the key offset
-  // TODO: add the function when recoverying the data.
-  //  index_builder_->AddKeyOffset();
 
   uint32_t placeholder_length =
       data_block_size - (GearTableFileReader::DATA_BLOCK_HEADER_SIZE +
