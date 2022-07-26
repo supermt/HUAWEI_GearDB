@@ -108,7 +108,7 @@ DEFINE_string(benchmark, "validate,generate,merge",
               "Please ensure when there is a merge operation in the benchmark, "
               "the use_existing_data is triggered");
 // directory settings.
-DEFINE_bool(use_exist_db, false, "Use the existing database or not");
+DEFINE_bool(use_existing_db, false, "Use the existing database or not");
 DEFINE_bool(reload_keys, false, "Use the existing database or not");
 DEFINE_bool(delete_new_files, true, "Delete L2 small tree after bench");
 DEFINE_string(db_path, "/tmp/rocksdb/gear", "The database path");
@@ -166,7 +166,7 @@ void constant_options(Options& opt) {
 }
 
 void ConfigByGFLAGS(Options& opt) {
-  opt.create_if_missing = !FLAGS_use_exist_db;
+  opt.create_if_missing = !FLAGS_use_existing_db;
   opt.max_open_files = FLAGS_max_open_files;
   opt.env = FLAGS_env;
   opt.write_buffer_size =
@@ -201,7 +201,7 @@ Options BootStrap(int argc, char** argv) {
   }
   std::cout << "db at " << FLAGS_db_path << std::endl;
   Options basic_options;
-  basic_options.create_if_missing = !FLAGS_use_exist_db;
+  basic_options.create_if_missing = !FLAGS_use_existing_db;
   basic_options.db_paths.emplace_back(FLAGS_db_path,
                                       std::numeric_limits<uint64_t>::max());
   basic_options.index_dir_prefix = FLAGS_index_dir_prefix;
@@ -209,7 +209,7 @@ Options BootStrap(int argc, char** argv) {
 }
 
 void DoMerge(MockFileGenerator& mock_db, KeyGenerator* key_gen) {
-  FLAGS_use_exist_db = true;
+  FLAGS_use_existing_db = true;
   std::cout << "Start the merging" << std::endl;
   mock_db.ReOpenDB();
   // Validate the version.
@@ -279,7 +279,7 @@ int gear_bench(int argc, char** argv) {
   FLAGS_env->SetBackgroundThreads(1,  // there is only one for L2 Compaction
                                   ROCKSDB_NAMESPACE::Env::Priority::BOTTOM);
 
-  gear_db::Benchmark benchmark(FLAGS_use_exist_db, FLAGS_db_path,
+  gear_db::Benchmark benchmark(FLAGS_use_existing_db, FLAGS_db_path,
                                basic_options);
   benchmark.Run();
 
@@ -316,7 +316,7 @@ void Benchmark::Generate(ThreadState* thread) {
     end_file_num = start_file_num + file_num_each_thread;
   }
 
-  assert(FLAGS_use_exist_db == false);
+  assert(FLAGS_use_existing_db == false);
   std::cout << "Creating " << (end_file_num - start_file_num) << " SSTs"
             << std::endl;
 
@@ -372,7 +372,7 @@ void Benchmark::Run() {
     void (Benchmark::*method)(ThreadState*) = nullptr;
     void (Benchmark::*post_process_method)() = nullptr;
 
-    bool fresh_db = !FLAGS_use_exist_db;
+    bool fresh_db = !FLAGS_use_existing_db;
     bool use_rocksdb = false;
 
     if (name == "validate") {
@@ -412,7 +412,7 @@ void Benchmark::Run() {
     }
 
     if (fresh_db) {
-      if (FLAGS_use_exist_db) {
+      if (FLAGS_use_existing_db) {
         fprintf(stdout, "%-12s : skipped (--use_existing_db is true)\n",
                 name.c_str());
         method = nullptr;
@@ -568,8 +568,8 @@ void Benchmark::DoWrite(ThreadState* thread, WriteMode write_mode) {
 //    if (name == "merge") {
 //      DoMerge(mock_db, &key_gen);
 //    } else if (name == "generate") {
-//      assert(FLAGS_use_exist_db == false);
-//      mock_db.NewDB(FLAGS_use_exist_db);
+//      assert(FLAGS_use_existing_db == false);
+//      mock_db.NewDB(FLAGS_use_existing_db);
 //      int l2_big_tree_num = FLAGS_distinct_num / FLAGS_write_buffer_size;
 //      std::cout << l2_big_tree_num << " SSTs need creatation" << std::endl;
 //

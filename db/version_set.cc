@@ -3464,9 +3464,6 @@ bool VersionStorageInfo::RangeMightExistAfterSortedRun(
   }
   return false;
 }
-VersionStorageInfo::BlockMap* VersionStorageInfo::GetBlockMap() {
-  return &block_index;
-}
 
 void Version::AddLiveFiles(std::vector<uint64_t>* live_table_files,
                            std::vector<uint64_t>* live_blob_files) const {

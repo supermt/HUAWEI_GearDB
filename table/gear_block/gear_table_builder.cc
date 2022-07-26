@@ -96,16 +96,17 @@ void GearTableBuilder::FlushDataBlock() {
   // add another key would extends the data block limit
   properties_.num_data_blocks += 1;
   // if the entry is empty
-  std::string first_key(block_key_buffer.substr(0, kGearTableFixedKeyLength));
-  auto index_it = ioptions_.block_index->find(first_key);
-  if (index_it == ioptions_.block_index->end()) {
-    // new block key
-    ioptions_.block_index->emplace(first_key, std::vector<IndexEntry>());
-  } else {
-    // not new block key
-    index_it->second.emplace_back(file_->file_name(),
-                                  properties_.num_data_blocks);
-  }
+  //  std::string first_key(block_key_buffer.substr(0,
+  //  kGearTableFixedKeyLength)); auto index_it =
+  //  ioptions_.block_index->find(first_key); if (index_it ==
+  //  ioptions_.block_index->end()) {
+  //    // new block key
+  //    ioptions_.block_index->emplace(first_key, std::vector<IndexEntry>());
+  //  } else {
+  //    // not new block key
+  //    index_it->second.emplace_back(file_->file_name(),
+  //                                  properties_.num_data_blocks);
+  //  }
 
   uint32_t placeholder_length =
       data_block_size - (GearTableFileReader::DATA_BLOCK_HEADER_SIZE +
