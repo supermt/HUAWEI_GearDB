@@ -115,7 +115,7 @@ DEFINE_string(db_path, "/tmp/rocksdb/gear", "The database path");
 DEFINE_string(table_format, "gear", "available formats: gear or normal");
 DEFINE_int64(max_open_files, 100, "max_opened_files");
 DEFINE_int64(bench_threads, 1, "number of working threads");
-DEFINE_int64(write_batch_size, 10000, "number of working threads");
+DEFINE_int64(write_batch_size, 1, "number of working threads");
 
 // key range settings.
 DEFINE_int64(duration, 0, "Duration of Fill workloads");
@@ -505,21 +505,17 @@ void Benchmark::DoWrite(ThreadState* thread, WriteMode write_mode) {
     int64_t batch_bytes = 0;
 
     int64_t rand_num = key_gens[id]->Next();
+    for (uint64_t i = 0; i < FLAGS_write_buffer_size; i++) {
+      key = key_gens[id]->GenerateKeyFromInt(rand_num);
+      Slice val = "valuevalue";
 
-    key = key_gens[id]->GenerateKeyFromInt(rand_num);
-    Slice val = "valuevalue";
+      batch.Put(key, val);
 
-    batch.Put(key, val);
-
-    batch_bytes += val.size() + key_size_;
-    bytes += val.size() + key_size_;
-    ++num_written;
-
-    current_batch_num++;
-    if (current_batch_num > FLAGS_write_batch_size) {
-      s = db_with_cfh->db->Write(write_options_, &batch);
-      current_batch_num = 0;
+      batch_bytes += val.size() + key_size_;
+      bytes += val.size() + key_size_;
+      ++num_written;
     }
+    s = db_with_cfh->db->Write(write_options_, &batch);
     if (thread->shared->write_rate_limiter.get() != nullptr) {
       thread->shared->write_rate_limiter->Request(batch_bytes, Env::IO_HIGH,
                                                   nullptr /* stats */,
