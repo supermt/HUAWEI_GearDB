@@ -133,10 +133,10 @@ DEFINE_int32(value_size, 10, "size of each value");
 // DB column settings
 DEFINE_int32(max_background_compactions, 1,
              "Number of concurrent threads to run.");
-DEFINE_uint64(write_buffer_size, 312 * 800,
+DEFINE_uint64(write_buffer_size, 312 * 50,
               "Size of Memtable, each flush will directly create a l2 small "
               "tree spanning in the entire key space");
-DEFINE_uint64(target_file_size_base, 312 * 800,
+DEFINE_uint64(target_file_size_base, 312 * 100,
               "Size of Memtable, each flush will directly create a l2 small "
               "tree spanning in the entire key space");
 DEFINE_uint64(max_compaction_bytes, 50000000000,
