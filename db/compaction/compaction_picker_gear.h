@@ -15,61 +15,6 @@
 #include "db/compaction/compaction_picker.h"
 
 namespace ROCKSDB_NAMESPACE {
-struct IndexTree {
-  IndexTree(int _level, FileMetaData* _file, uint64_t _size,
-            uint64_t _compensated_file_size, bool _being_compacted)
-      : level(_level),
-        file(_file),
-        size(_size),
-        compensated_file_size(_compensated_file_size),
-        being_compacted(_being_compacted),
-        fd_list(0) {
-    assert(level != 0 || file != nullptr);
-  }
-  // This index tree is written for the emplace_back function.
-  IndexTree(int _level, FileMetaData* _file, uint64_t _size,
-            uint64_t _compensated_file_size, bool _being_compacted,
-            std::vector<FileMetaData*>& fd_list_)
-      : level(_level),
-        file(_file),
-        size(_size),
-        compensated_file_size(_compensated_file_size),
-        being_compacted(_being_compacted),
-        fd_list(fd_list_) {
-    assert(level != 0 || file != nullptr);
-    assert(size > 0 && compensated_file_size > 0);
-  }
-  void Dump(char* out_buf, size_t out_buf_size, bool print_path = false) const;
-
-  // sorted_run_count is added into the string to print
-  void DumpSizeInfo(char* out_buf, size_t out_buf_size,
-                    size_t sorted_run_count) const;
-
-  bool AddFileToFdList(FileMetaData* fd_ptr, uint64_t target_length) {
-    if (fd_list.size() >= target_length) {
-      // The fd_list is too long.
-      return false;
-    } else {
-      fd_list.emplace_back(fd_ptr);
-      assert(fd_list.size() <= target_length);
-      return true;
-    }
-  }
-
-  int level;
-  // `file` Will be null for level > 0. For level = 0, the sorted run is
-  // for this file.
-  FileMetaData* file;
-  // For level > 0, `size` and `compensated_file_size` are sum of sizes all
-  // files in the level. `being_compacted` should be the same for all files
-  // in a non-zero level. Use the value here.
-  uint64_t size;
-  uint64_t compensated_file_size;
-  bool being_compacted;
-  std::vector<FileMetaData*> fd_list;
-};
-
-typedef IndexTree SortedRun;
 
 class GearCompactionPicker : public CompactionPicker {
  public:
@@ -101,6 +46,7 @@ class GearCompactionPicker : public CompactionPicker {
   // ratio, trigger a large merge
   double upper_level_size_ratio =
       0.04;  // Size ratio of L2-1 file, when the size of this file exceed this
+  const static uint64_t single_compaction_size = 2l * 1204 * 1024 * 1024;
   // ratio, trigger a large merge
 
 };  // end class compaction gear picker
@@ -125,7 +71,6 @@ class GearCompactionBuilder {
         picker_(picker),
         log_buffer_(log_buffer),
         first_l2_size_ratio_(first_l2_size_ratio),
-        upper_level_file_size_ratio_(upper_level_file_size_ratio),
         force_compaction_(false) {}
   // function section
  public:
@@ -134,16 +79,14 @@ class GearCompactionBuilder {
  private:
   const ImmutableCFOptions& ioptions_;
   const InternalKeyComparator* icmp_;
-  double score_;
-  std::vector<IndexTree> sorted_runs_;
+  double l0_score_;
   const std::string& cf_name_;
   const MutableCFOptions& mutable_cf_options_;
   VersionStorageInfo* vstorage_;
   GearCompactionPicker* picker_;
   LogBuffer* log_buffer_;
   const double first_l2_size_ratio_;
-  const double upper_level_file_size_ratio_;
-  std::vector<std::pair<int, std::vector<IndexTree>>> tree_level_map;
+  const static uint64_t max_compaction_file_size = 2ul * 1024 * 1024 * 1024;
 
   // function section
  public:
@@ -201,31 +144,34 @@ class GearCompactionBuilder {
     return p;
   }
   Compaction* PickCompactionLastLevel();
-  int PickOverlappedL2SSTs(CompactionInputFiles& input_bucket);
-  Compaction* PickCompactionToOldest(size_t start_index,
-                                     CompactionReason compaction_reason);
-  Compaction* PickDeleteTriggeredCompaction();
-  bool IsInputFilesNonOverlapping(Compaction* c);
-  //  Compaction* PickCompactionToReduceSortedRuns(
-  //      unsigned int ratio, unsigned int max_number_of_files_to_compact);
   Compaction* PickCompactionForLevel(int level);
 
-  void getAllIndexTrees(std::vector<IndexTree>* results);
-  std::vector<std::pair<int, std::vector<IndexTree>>>& getTreeLevelMap() {
-    return tree_level_map;
-  }
   bool L2SmallTreeIsFilled() {
-    assert((int)tree_level_map.size() == vstorage_->num_levels());
-    // noticed that, there is only 2 index tree here (one big, one small)
-    double small_tree_size = 0.0;
-    small_tree_size = tree_level_map[vstorage_->num_levels() - 1]
-                          .second[VersionStorageInfo::l2_small_tree_index]
-                          .fd_list.size();
-    return small_tree_size >=
-           pow(mutable_cf_options_.level0_file_num_compaction_trigger,
-               vstorage_->num_levels() - 1);
+    auto l2_files = vstorage_->LevelFiles(vstorage_->num_levels() - 1);
+    if (l2_files.size() <=
+        pow(mutable_cf_options_.level0_file_num_compaction_trigger,
+            vstorage_->num_levels() - 1)) {
+      return false;
+    }
+
+    uint64_t l2_small_size_bytes = 0;
+    for (auto&& l2_sst : l2_files) {
+      if (l2_sst->get_l2_position() ==
+          VersionStorageInfo::l2_small_tree_index) {
+        l2_small_size_bytes += l2_sst->compensated_file_size;
+      }
+    }
+    uint64_t total_db_bytes;
+    for (int i = 0; i < vstorage_->num_levels(); i++) {
+      total_db_bytes += vstorage_->NumLevelBytes(i);
+    }
+    if (static_cast<double>(l2_small_size_bytes) / total_db_bytes >
+        first_l2_size_ratio_) {
+      return true;
+    }
+    return false;
   }
-  void BuildTreeLevelMap();
+
   bool force_compaction_;
 };
 
@@ -236,22 +182,5 @@ struct InputFileInfo {
   size_t level;
   size_t index;
 };
-
-struct SmallestKeyHeapComparator {
-  explicit SmallestKeyHeapComparator(const Comparator* ucmp) { ucmp_ = ucmp; }
-
-  bool operator()(InputFileInfo i1, InputFileInfo i2) const {
-    return (ucmp_->Compare(i1.f->smallest.user_key(),
-                           i2.f->smallest.user_key()) > 0);
-  }
-
- private:
-  const Comparator* ucmp_;
-};
-
-typedef std::priority_queue<InputFileInfo, std::vector<InputFileInfo>,
-                            SmallestKeyHeapComparator>
-    SmallestKeyHeap;
-
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

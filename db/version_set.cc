@@ -2266,7 +2266,8 @@ void VersionStorageInfo::ComputeCompensatedSizes() {
 }
 
 int VersionStorageInfo::MaxInputLevel() const {
-  if (compaction_style_ == kCompactionStyleLevel) {
+  if (compaction_style_ == kCompactionStyleLevel ||
+      compaction_style_ == kCompactionStyleGear) {
     return num_levels() - 2;
   }
   return 0;
@@ -2446,13 +2447,14 @@ void VersionStorageInfo::ComputeCompactionScore(
               score);
         }
 
+      } else if (compaction_style_ == kCompactionStyleGear) {
+        score = static_cast<double>(num_sorted_runs) /
+                mutable_cf_options.level0_file_num_compaction_trigger;
       } else {
         // Level-based and Gear Compaction
         score = static_cast<double>(num_sorted_runs) /
                 mutable_cf_options.level0_file_num_compaction_trigger;
-        if ((compaction_style_ == kCompactionStyleLevel ||
-             compaction_style_ == kCompactionStyleGear) &&
-            num_levels() > 1) {
+        if (compaction_style_ == kCompactionStyleLevel && num_levels() > 1) {
           // Level-based involves L0->L0 compactions that can lead to oversized
           // L0 files. Take into account size as well to avoid later giant
           // compactions to the base level.
@@ -2462,34 +2464,47 @@ void VersionStorageInfo::ComputeCompactionScore(
         }
       }
     } else {
-      // Compute the ratio of current size to size limit.
-      uint64_t level_bytes_no_compacting = 0;
-      for (auto f : files_[level]) {
-        if (!f->being_compacted) {
-          level_bytes_no_compacting += f->compensated_file_size;
+      if (compaction_style_ == kCompactionStyleGear) {
+        // for gear compaction ,the compaction score is calculated by number of
+        // files
+        score = static_cast<double>(files_[level].size()) /
+                (pow(mutable_cf_options.level0_file_num_compaction_trigger,
+                     level + 1));
+      } else {
+        // Compute the ratio of current size to size limit.
+        uint64_t level_bytes_no_compacting = 0;
+        for (auto f : files_[level]) {
+          if (!f->being_compacted) {
+            level_bytes_no_compacting += f->compensated_file_size;
+          }
         }
+        score = static_cast<double>(level_bytes_no_compacting) /
+                MaxBytesForLevel(level);
       }
-      score = static_cast<double>(level_bytes_no_compacting) /
-              MaxBytesForLevel(level);
     }
     compaction_level_[level] = level;
     compaction_score_[level] = score;
   }
 
-  // sort all the levels based on their score. Higher scores get listed
-  // first. Use bubble sort because the number of entries are small.
-  for (int i = 0; i < num_levels() - 2; i++) {
-    for (int j = i + 1; j < num_levels() - 1; j++) {
-      if (compaction_score_[i] < compaction_score_[j]) {
-        double score = compaction_score_[i];
-        int level = compaction_level_[i];
-        compaction_score_[i] = compaction_score_[j];
-        compaction_level_[i] = compaction_level_[j];
-        compaction_score_[j] = score;
-        compaction_level_[j] = level;
+  if (compaction_style_ != kCompactionStyleGear) {
+    // do not sort the level score in GearCompaction
+
+    // sort all the levels based on their score. Higher scores get listed
+    // first. Use bubble sort because the number of entries are small.
+    for (int i = 0; i < num_levels() - 2; i++) {
+      for (int j = i + 1; j < num_levels() - 1; j++) {
+        if (compaction_score_[i] < compaction_score_[j]) {
+          double score = compaction_score_[i];
+          int level = compaction_level_[i];
+          compaction_score_[i] = compaction_score_[j];
+          compaction_level_[i] = compaction_level_[j];
+          compaction_score_[j] = score;
+          compaction_level_[j] = level;
+        }
       }
     }
   }
+
   ComputeFilesMarkedForCompaction();
   ComputeBottommostFilesMarkedForCompaction();
   if (mutable_cf_options.ttl > 0) {
@@ -2632,24 +2647,20 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
       internal_comparator_->Compare(
           (*level_files)[level_files->size() - 1]->largest, f->smallest) >= 0) {
     auto* f2 = (*level_files)[level_files->size() - 1];
-    if (info_log != nullptr) {
-      Error(info_log,
-            "Adding new file %" PRIu64
-            " range (%s, %s) to level %d but overlapping "
-            "with existing file %" PRIu64 " %s %s",
-            f->fd.GetNumber(), f->smallest.DebugString(true).c_str(),
-            f->largest.DebugString(true).c_str(), level, f2->fd.GetNumber(),
-            f2->smallest.DebugString(true).c_str(),
-            f2->largest.DebugString(true).c_str());
-      LogFlush(info_log);
-    }
     if (this->compaction_style_ == kCompactionStyleGear) {
-      // using the gear compaction, which allows the overlapping files.
-      Warn(info_log,
-           "Using Gear compaction, this compaction style allows overlapping");
-      LogFlush(info_log);
-      assert(true);
+      // do not check the style.
     } else {
+      if (info_log != nullptr) {
+        Error(info_log,
+              "Adding new file %" PRIu64
+              " range (%s, %s) to level %d but overlapping "
+              "with existing file %" PRIu64 " %s %s",
+              f->fd.GetNumber(), f->smallest.DebugString(true).c_str(),
+              f->largest.DebugString(true).c_str(), level, f2->fd.GetNumber(),
+              f2->smallest.DebugString(true).c_str(),
+              f2->largest.DebugString(true).c_str());
+        LogFlush(info_log);
+      }
       assert(false);
     }
   }

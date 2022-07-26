@@ -76,6 +76,7 @@ TableBuilder* NewTableBuilder(
       column_family_id, file);
 }
 
+// this is the entry point of writing flush
 Status BuildTable(
     const std::string& dbname, Env* env, FileSystem* fs,
     const ImmutableCFOptions& ioptions,

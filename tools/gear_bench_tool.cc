@@ -115,7 +115,9 @@ DEFINE_string(db_path, "/tmp/rocksdb/gear", "The database path");
 DEFINE_string(table_format, "gear", "available formats: gear or normal");
 DEFINE_int64(max_open_files, 100, "max_opened_files");
 DEFINE_int64(bench_threads, 1, "number of working threads");
-DEFINE_int64(write_batch_size, 1, "number of working threads");
+DEFINE_int64(write_batch_size, 312,
+             "size of write batch, once, used to accelerate");
+DEFINE_int64(size_ratio, 4, "Size ratio of gear compaction");
 
 // key range settings.
 DEFINE_int64(duration, 0, "Duration of Fill workloads");
@@ -133,10 +135,10 @@ DEFINE_int32(value_size, 10, "size of each value");
 // DB column settings
 DEFINE_int32(max_background_compactions, 1,
              "Number of concurrent threads to run.");
-DEFINE_uint64(write_buffer_size, 312 * 50,
+DEFINE_uint64(write_buffer_size, 312 * 1000,
               "Size of Memtable, each flush will directly create a l2 small "
               "tree spanning in the entire key space");
-DEFINE_uint64(target_file_size_base, 312 * 100,
+DEFINE_uint64(target_file_size_base, 312 * 1000,
               "Size of Memtable, each flush will directly create a l2 small "
               "tree spanning in the entire key space");
 DEFINE_uint64(max_compaction_bytes, 50000000000,
@@ -169,15 +171,15 @@ void ConfigByGFLAGS(Options& opt) {
   opt.create_if_missing = !FLAGS_use_existing_db;
   opt.max_open_files = FLAGS_max_open_files;
   opt.env = FLAGS_env;
-  opt.write_buffer_size =
-      FLAGS_write_buffer_size * (FLAGS_key_size + FLAGS_value_size);
-  opt.target_file_size_base =
-      FLAGS_target_file_size_base * (FLAGS_key_size + FLAGS_value_size);
+  opt.write_buffer_size = FLAGS_write_buffer_size * (26);
+  opt.target_file_size_base = FLAGS_target_file_size_base * (26);
   opt.max_background_jobs = FLAGS_max_background_compactions + 1;
   opt.index_dir_prefix = FLAGS_index_dir_prefix;
   opt.max_subcompactions = FLAGS_max_background_compactions;
   opt.max_compaction_bytes =
       std::max(FLAGS_max_compaction_bytes, opt.target_file_size_base);
+  opt.level0_file_num_compaction_trigger = FLAGS_size_ratio;
+  opt.target_file_size_multiplier = FLAGS_size_ratio;
 
   if (FLAGS_table_format == "gear") {
     // specific type of sstable format.
@@ -367,7 +369,7 @@ void Benchmark::Run() {
     value_size_ = FLAGS_value_size;
     key_size_ = FLAGS_key_size;
     write_options_ = WriteOptions();
-    write_options_.disableWAL = true;
+    //    write_options_.disableWAL = true;
 
     void (Benchmark::*method)(ThreadState*) = nullptr;
     void (Benchmark::*post_process_method)() = nullptr;
@@ -504,15 +506,18 @@ void Benchmark::DoWrite(ThreadState* thread, WriteMode write_mode) {
     batch.Clear();
     int64_t batch_bytes = 0;
 
-    int64_t rand_num = key_gens[id]->Next();
-    for (uint64_t i = 0; i < FLAGS_write_buffer_size; i++) {
+    //    Slice val = "valuevalue";
+    //    s = db_with_cfh->db->Put(write_options_, key, val);
+    //    num_written++;
+    for (int64_t i = 0; i < FLAGS_write_batch_size; i++) {
+      int64_t rand_num = key_gens[id]->Next();
       key = key_gens[id]->GenerateKeyFromInt(rand_num);
       Slice val = "valuevalue";
 
       batch.Put(key, val);
 
-      batch_bytes += val.size() + key_size_;
-      bytes += val.size() + key_size_;
+      batch_bytes += 26;
+      bytes += 26;
       ++num_written;
     }
     s = db_with_cfh->db->Write(write_options_, &batch);
@@ -540,75 +545,3 @@ void Benchmark::DoWrite(ThreadState* thread, WriteMode write_mode) {
 }  // namespace gear_db
 
 #endif
-
-//
-//  L2SmallTreeCreator l2_small_gen =
-//      L2SmallTreeCreator(FLAGS_db_path + "l2_small.sst", basic_options,
-//      FLAGS_env,
-//                         FLAGS_print_data, FLAGS_delete_new_files);
-//  // Prepare the random generators
-//  Random64 rand_gen(FLAGS_seed);
-//  FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions,
-//                                  ROCKSDB_NAMESPACE::Env::Priority::LOW);
-//  KeyGenerator key_gen(&rand_gen, SEQUENTIAL, FLAGS_distinct_num,
-//  FLAGS_seed,
-//                       FLAGS_key_size, FLAGS_min_value);
-//
-//  // Create the mock file generator, estimate the fully compacted l2 big
-//  tree MockFileGenerator mock_db(FLAGS_env, FLAGS_db_path, basic_options);
-//
-//  // Preparation finished
-//  std::stringstream benchmark_stream(FLAGS_benchmark);
-//  std::string name;
-//  while (std::getline(benchmark_stream, name, ',')) {
-//    if (name == "merge") {
-//      DoMerge(mock_db, &key_gen);
-//    } else if (name == "generate") {
-//      assert(FLAGS_use_existing_db == false);
-//      mock_db.NewDB(FLAGS_use_existing_db);
-//      int l2_big_tree_num = FLAGS_distinct_num / FLAGS_write_buffer_size;
-//      std::cout << l2_big_tree_num << " SSTs need creatation" << std::endl;
-//
-//      auto start_ms = FLAGS_env->NowMicros();
-//      std::cout << "Start running at: " << start_ms << std::endl;
-//      for (int file_num = 0; file_num < l2_big_tree_num; file_num++) {
-//        uint64_t smallest_key =
-//            file_num * FLAGS_write_buffer_size + FLAGS_min_value;
-//        uint64_t largest_key = smallest_key + FLAGS_write_buffer_size - 1;
-//        largest_key = std::min(largest_key, FLAGS_distinct_num);
-//        mock_db.CreateFileByKeyRange(smallest_key, largest_key, &key_gen);
-//        std::cout << "No. " << file_num << " SST generated at "
-//                  << FLAGS_env->NowMicros()
-//                  << ", smallest key: " << smallest_key
-//                  << " largest key: " << largest_key << std::endl;
-//      }
-//      if (l2_big_tree_num * FLAGS_write_buffer_size < FLAGS_distinct_num) {
-//        uint64_t smallest_key =
-//            l2_big_tree_num * FLAGS_write_buffer_size + FLAGS_min_value;
-//        uint64_t largest_key = smallest_key + FLAGS_write_buffer_size;
-//        largest_key = std::min(largest_key, FLAGS_distinct_num);
-//        std::string smallest_key_str;
-//        std::string largest_key_str;
-//        smallest_key_str = key_gen.GenerateKeyFromInt(smallest_key);
-//        largest_key_str = key_gen.GenerateKeyFromInt(largest_key);
-//
-//        mock_db.CreateFileByKeyRange(smallest_key, largest_key, &key_gen);
-//        std::cout << "No. " << l2_big_tree_num << " SST generated at "
-//                  << FLAGS_env->NowMicros()
-//                  << ", smallest key: " << smallest_key
-//                  << " largest key: " << largest_key << std::endl;
-//      }
-//      auto end_micro_sec = FLAGS_env->NowMicros();
-//      std::cout << "l2 big tree generating finished at " << end_micro_sec
-//                << std::endl;
-//
-//      std::cout << "Time cost: " << ((double)end_micro_sec - start_ms) /
-//      1000000
-//                << " sec.";
-//      mock_db.FreeDB();
-//    } else {
-//      mock_db.FreeDB();
-//      return -1;
-//    }
-//  }
-//  mock_db.FreeDB();
