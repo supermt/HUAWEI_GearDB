@@ -102,6 +102,10 @@ enum class CompactionReason : int {
   kNumOfReasons,
 };
 
+#define l2_small_tree_index 0
+#define l2_large_tree_index 1
+#define l2_invalid_tree_index -1
+
 enum class FlushReason : int {
   kOthers = 0x00,
   kGetLiveFiles = 0x01,

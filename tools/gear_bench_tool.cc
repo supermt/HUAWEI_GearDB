@@ -227,7 +227,7 @@ void DoMerge(MockFileGenerator& mock_db, KeyGenerator* key_gen) {
   auto files = mock_db.cfd_->current()->storage_info()->LevelFiles(2);
   bool small_tree_generated = false;
   for (auto f : files) {
-    if (f->l2_position == VersionStorageInfo::l2_small_tree_index) {
+    if (f->l2_position == l2_small_tree_index) {
       small_tree_generated = true;
     }
   }
@@ -247,8 +247,7 @@ void DoMerge(MockFileGenerator& mock_db, KeyGenerator* key_gen) {
           std::min(FLAGS_write_buffer_size, largest - smallest), FLAGS_seed,
           SpanningKeyGenerator::kUniform);
       content = l2_small_key_gen.GenerateContent(key_gen, &seq);
-      Status s = mock_db.AddMockFile(
-          content, 2, VersionStorageInfo::l2_small_tree_index, 0);
+      Status s = mock_db.AddMockFile(content, 2, l2_small_tree_index, 0);
       if (!s.ok()) {
         std::cout << s.ToString() << std::endl;
         abort();

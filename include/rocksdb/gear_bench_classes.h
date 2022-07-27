@@ -355,7 +355,7 @@ class MockFileGenerator {
   Status AddMockFile(uint64_t start_num, uint64_t end_num,
                      KeyGenerator* key_gen, SequenceNumber start_seq,
                      int thread_id, int level = 2,
-                     int l2_position = VersionStorageInfo::l2_large_tree_index);
+                     int l2_position = l2_large_tree_index);
   Status TriggerCompaction();
   void NewDB(bool use_existing_data);
   void FreeDB();

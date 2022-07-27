@@ -153,7 +153,7 @@ struct FileMetaData {
                const SequenceNumber& largest_seq, bool marked_for_compact,
                uint64_t oldest_blob_file, uint64_t _oldest_ancester_time,
                uint64_t _file_creation_time, const std::string& _file_checksum,
-               const std::string& _file_checksum_func_name, int l2_posi = -1)
+               const std::string& _file_checksum_func_name, int l2_posi = 1)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
         largest(largest_key),

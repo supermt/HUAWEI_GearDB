@@ -328,7 +328,6 @@ class VersionStorageInfo {
     if (!location.IsValid()) {
       return nullptr;
     }
-
     return files_[location.GetLevel()][location.GetPosition()];
   }
 
@@ -622,10 +621,6 @@ class VersionStorageInfo {
   friend class Version;
   friend class VersionSet;
   // macro area
- public:
-  const static int l2_small_tree_index = 0;
-  const static int l2_large_tree_index = 1;
-  const static int l2_invalid_tree_index = -1;
 };
 
 using MultiGetRange = MultiGetContext::Range;

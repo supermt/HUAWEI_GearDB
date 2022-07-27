@@ -4661,6 +4661,12 @@ Status VersionSet::Recover(
                                *cfd->GetLatestMutableCFOptions(),
                                current_version_number_++);
       s = builder->SaveTo(v->storage_info());
+      auto vfs = v->storage_info();
+      auto l2_files = vfs->files_[vfs->num_levels() - 1];
+      for (auto l2_file : l2_files) {
+        // in the recover phrase, all files should be changed in to l2;
+        l2_file->l2_position = l2_large_tree_index;
+      }
       if (!s.ok()) {
         delete v;
         return s;
@@ -5348,7 +5354,10 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->fd.smallest_seqno, f->fd.largest_seqno,
                        f->marked_for_compaction, f->oldest_blob_file_number,
                        f->oldest_ancester_time, f->file_creation_time,
-                       f->file_checksum, f->file_checksum_func_name);
+                       f->file_checksum, f->file_checksum_func_name,
+                       level == cfd->current()->storage_info()->num_levels() - 1
+                           ? 1
+                           : -1);
         }
       }
 

@@ -1552,12 +1552,12 @@ Status CompactionJob::OpenCompactionOutputFile(
     //    out.meta.l2_position = -1;
     auto reason = compact_->compaction->compaction_reason();
     if (reason == CompactionReason::kGearCompactionAllInOne) {
-      out.meta.l2_position = VersionStorageInfo::l2_large_tree_index;
+      out.meta.l2_position = l2_large_tree_index;
     } else if (reason == CompactionReason::kGearCollectTiered) {
       // only update when the files are write to the last level
       if (compact_->compaction->output_level() ==
           cfd->current()->storage_info()->num_levels() - 1) {
-        out.meta.l2_position = VersionStorageInfo::l2_small_tree_index;
+        out.meta.l2_position = l2_small_tree_index;
       }
     }
 

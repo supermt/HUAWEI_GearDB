@@ -78,7 +78,7 @@ void MockFileGenerator::ReOpenDB() {
                        ->current()
                        ->storage_info()
                        ->LevelFiles(options_.num_levels - 1)) {
-    file->l2_position = VersionStorageInfo::l2_large_tree_index;
+    file->l2_position = l2_large_tree_index;
   }
   for (int i = 0; i < bench_threads_; i++) {
     writers_[i].reset(new SstFileWriter(env_options_, options_, handle));
@@ -345,7 +345,7 @@ Status MockFileGenerator::CreateFileByKeyRange(uint64_t smallest_key,
   Status s;
   SequenceNumber sequence_number = start_seq;
   s = AddMockFile(smallest_key, largest_key, key_gen, sequence_number,
-                  thread_id, 2, VersionStorageInfo::l2_large_tree_index);
+                  thread_id, 2, l2_large_tree_index);
 
   sequence_number++;
   SetLastSequence(sequence_number);

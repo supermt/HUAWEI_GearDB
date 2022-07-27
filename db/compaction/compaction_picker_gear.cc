@@ -494,10 +494,10 @@ int GearCompactionBuilder::PickOverlappedL2SSTs(
   l2_small_tree.level = last_level;
   InternalKey smallest, largest;
   for (auto file : vstorage_->LevelFiles(last_level)) {
-    if (file->l2_position == VersionStorageInfo::l2_small_tree_index) {
+    if (file->l2_position == l2_small_tree_index) {
       l2_small_tree.files.push_back(file);
       input_bucket.files.push_back(file);
-    } else if (file->l2_position == VersionStorageInfo::l2_large_tree_index) {
+    } else if (file->l2_position == l2_large_tree_index) {
     } else {
       assert(false);
     }
@@ -663,8 +663,8 @@ Compaction* GearCompactionBuilder::PickCompactionLastLevel() {
                    cf_name_.c_str());
   int last_level = vstorage_->num_levels() - 1;
   auto l2_trees = tree_level_map[last_level].second;
-  if (l2_trees[VersionStorageInfo::l2_small_tree_index].being_compacted ||
-      l2_trees[VersionStorageInfo::l2_large_tree_index].being_compacted) {
+  if (l2_trees[l2_small_tree_index].being_compacted ||
+      l2_trees[l2_large_tree_index].being_compacted) {
     // any of the L2 files should not being compacted.
     return nullptr;
   }
